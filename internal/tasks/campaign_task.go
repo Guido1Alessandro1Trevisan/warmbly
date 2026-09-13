@@ -1032,15 +1032,21 @@ func (s *tasksService) threadParent(ctx context.Context, campaignID, contactID u
 //
 // The parent answers it whenever there is one, because that is read off what
 // the contact was actually sent. The campaign's own step order is the fallback
-// for when there is not: a previous send the worker never confirmed leaves no
-// parent, and a threading step authored in the composer has no subject of its
-// own to fall back on, so without this it would ship a blank Subject header.
+// for when there is not, and it only has to run for a step with no subject of
+// its own: a previous send the worker never confirmed leaves no parent, and a
+// threading step authored in the composer has nothing to fall back on, so
+// without this it would ship a blank Subject header. A step that does have a
+// subject already has something to send, which keeps this off the first-touch
+// path, where there is never a parent and never anything to inherit.
 func (s *tasksService) threadSubject(ctx context.Context, campaignID uuid.UUID, sequence *Sequence, parent *repository.ThreadParent) string {
 	if sequence == nil || !sequence.ThreadReply {
 		return ""
 	}
 	if parent != nil && parent.Subject != "" {
 		return parent.Subject
+	}
+	if strings.TrimSpace(sequence.Subject) != "" {
+		return ""
 	}
 	seqs, err := s.campaignRepo.GetSequencesByCampaignID(ctx, campaignID)
 	if err != nil {

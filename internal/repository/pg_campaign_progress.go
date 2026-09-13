@@ -559,7 +559,7 @@ const threadParentScan = 50
 func (r *campaignProgressRepository) ThreadParentForLead(ctx context.Context, campaignID, contactID uuid.UUID) (*ThreadParent, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT t.message_id, t.thread_id, t.email_account_id,
-		       COALESCE(s.subject, ''), COALESCE(s.thread_reply, true)
+		       s.id IS NOT NULL, COALESCE(s.subject, ''), COALESCE(s.thread_reply, true)
 		FROM campaign_tasks ct
 		JOIN tasks t ON t.id = ct.task_id
 		LEFT JOIN sequences s ON s.id = ct.sequence_id
@@ -580,13 +580,22 @@ func (r *campaignProgressRepository) ThreadParentForLead(ctx context.Context, ca
 		var (
 			messageID, threadID, stepSubject string
 			senderID                         uuid.UUID
-			threadReply                      bool
+			stepKnown, threadReply           bool
 		)
-		if err := rows.Scan(&messageID, &threadID, &senderID, &stepSubject, &threadReply); err != nil {
+		if err := rows.Scan(&messageID, &threadID, &senderID, &stepKnown, &stepSubject, &threadReply); err != nil {
 			return nil, err
 		}
 		if parent == nil {
 			parent = &ThreadParent{MessageID: messageID, ThreadID: threadID, SenderID: senderID}
+		}
+		// A step that has since been deleted (campaign_tasks.sequence_id is
+		// ON DELETE SET NULL) says nothing about whether it opened a thread or
+		// joined one, so the walk cannot pass it. Stopping with no subject is
+		// what makes the caller fall back and drop the provider handle, rather
+		// than filing this send in a conversation under a subject that may
+		// belong to a different one.
+		if !stepKnown {
+			break
 		}
 		// Walking back from the parent, the first step that did NOT reply in a
 		// thread is the one that opened this conversation, and its subject is

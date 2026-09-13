@@ -224,3 +224,29 @@ func TestLiveThreadParentIgnoresUnfinishedTasks(t *testing.T) {
 		t.Fatalf("got parent %+v, want none: the send failed", p)
 	}
 }
+
+// A step deleted after it sent leaves campaign_tasks.sequence_id NULL, so
+// nothing records whether it opened the conversation or joined one. The walk
+// must stop there rather than handing back an older step's subject: the
+// caller pairs that subject with the deleted send's provider thread, and the
+// two need not belong together.
+func TestLiveThreadParentStopsAtADeletedStep(t *testing.T) {
+	_, pool := liveContactDB(t)
+	f := newThreadParentFixture(t, pool)
+	first := f.step(0, "Quick question", false)
+	gone := f.step(1, "New angle", false)
+	f.send(first, f.mailbox, "<one@test.local>", "thr-1", 120)
+	f.send(gone, f.mailbox, "<two@test.local>", "thr-2", 60)
+	f.exec(`DELETE FROM sequences WHERE id = $1`, gone)
+
+	p := f.parent(t)
+	if p == nil {
+		t.Fatal("got no parent, want the deleted step's send")
+	}
+	if p.MessageID != "<two@test.local>" {
+		t.Errorf("parent message id = %q, want the most recent send", p.MessageID)
+	}
+	if p.Subject != "" {
+		t.Errorf("conversation subject = %q, want none: the step that sent it is gone", p.Subject)
+	}
+}
