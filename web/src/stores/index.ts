@@ -6,7 +6,6 @@ export {
   useSidebar,
   useCurrentOrg,
   useOrganizations,
-  useKeyboardNavigation,
   useCachedData,
   useConnectionStatus,
   useUnseenCount,
@@ -16,6 +15,11 @@ export {
 export type { UserSlice } from './slices/userSlice'
 export type { OrganizationSlice, Organization } from './slices/organizationSlice'
 export type { UISlice, Theme } from './slices/uiSlice'
+export {
+  UNIBOX_LIST_MIN_WIDTH,
+  UNIBOX_LIST_MAX_WIDTH,
+  UNIBOX_LIST_DEFAULT_WIDTH,
+} from './slices/uiSlice'
 export type { ShortcutSlice } from './slices/shortcutSlice'
 export type { DataSlice } from './slices/dataSlice'
 export type { RealtimeSlice, ConnectionQuality } from './slices/realtimeSlice'
