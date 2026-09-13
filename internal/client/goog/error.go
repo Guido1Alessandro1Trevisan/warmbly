@@ -2,12 +2,34 @@ package goog
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"github.com/warmbly/warmbly/internal/errx"
 	"github.com/warmbly/warmbly/internal/pkg/mailauth"
 	"google.golang.org/api/googleapi"
 )
+
+// IsThreadRefusal reports a send Gmail rejected because of the threadId it was
+// given rather than because of the message. Gmail only files a message in a
+// thread when the subject and the reference headers line up with it, and the
+// thread has to still exist in this mailbox; a moved, deleted or foreign
+// thread is a 400/404 naming it. The send provably did not happen, so the
+// caller can safely try again without the thread handle and deliver the email
+// as its own conversation instead of failing the step.
+func IsThreadRefusal(err error) bool {
+	if err == nil {
+		return false
+	}
+	var gerr *googleapi.Error
+	if !errors.As(err, &gerr) {
+		return false
+	}
+	if gerr.Code != 400 && gerr.Code != 404 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(gerr.Message), "thread")
+}
 
 func HandleError(err error) *errx.MailError {
 	if err == nil {

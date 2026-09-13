@@ -441,6 +441,9 @@ type CreateSequenceInput struct {
 	BodySync  *bool  `json:"body_sync,omitempty"`
 	BodyCode  *bool  `json:"body_code,omitempty"`
 	WaitAfter *int   `json:"wait_after,omitempty"`
+	// ThreadReply defaults to true: a step written here is a follow-up and
+	// belongs in the conversation the first email started.
+	ThreadReply *bool `json:"thread_reply,omitempty"`
 }
 
 // StartCampaignOptions qualifies a start request.

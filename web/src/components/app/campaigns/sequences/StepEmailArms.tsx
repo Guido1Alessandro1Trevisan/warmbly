@@ -41,10 +41,13 @@ export default function StepEmailArms({
     campaignId,
     sequence,
     index,
+    conversationSubject = null,
 }: {
     campaignId: string;
     sequence: Sequence;
     index: number;
+    // The subject of the conversation this step replies on; see SequenceView.
+    conversationSubject?: string | null;
 }) {
     const { data: all } = useCampaignABVariants(campaignId);
     const stepRows = (all ?? []).filter((v) => v.step_id === sequence.id);
@@ -194,6 +197,7 @@ export default function StepEmailArms({
                     campaignId={campaignId}
                     sequence={sequence}
                     index={index}
+                    conversationSubject={conversationSubject}
                     headerExtra={
                         variants.length === 0 ? (
                             <button

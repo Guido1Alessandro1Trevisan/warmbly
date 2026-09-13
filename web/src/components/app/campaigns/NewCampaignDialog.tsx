@@ -368,6 +368,10 @@ export function NewCampaignDialog({ open, onClose }: Props) {
                 subject: s.subject.trim(),
                 body_plain: s.body_plain,
                 wait_after: i === 0 ? 0 : Math.max(0, s.wait_after),
+                // What the subject box promises: a blank follow-up subject
+                // replies in the thread, a written one opens its own. The step
+                // editor makes the same choice an explicit switch.
+                thread_reply: i === 0 || s.subject.trim() === "",
             }));
     }
 

@@ -475,10 +475,27 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 		taskRecord.EmailAccountID = account.ID
 	}
 
+	// STEP 9.4: The conversation this step joins. A follow-up is a nudge on the
+	// email the contact already has, not a second cold email, so every step
+	// after their first is threaded onto the last one they received: the
+	// parent's Message-ID becomes In-Reply-To/References, which is what the
+	// RECIPIENT's client threads on, and the parent's provider thread handle
+	// files it in the same conversation in the SENDER's mailbox (issue #472).
+	// A contact's first email has no parent and opens the thread.
+	threadParent := s.threadParent(ctx, campaign.ID, contact.ID, sequence)
+
 	// STEP 9.5: Resolve {{form_link:...}} markers to per-recipient form URLs
 	// BEFORE templating, so the substituted literal survives the naive
 	// fallback and gets wrapped by click tracking in STEP 11 like any link.
 	rawSubject, rawBodyHTML, rawBodyPlain := sequence.Subject, sequence.BodyHTML, sequence.BodyPlain
+	// A reply carries the conversation's subject, so a threading step does not
+	// have one of its own: it inherits the parent's, rendered here so the
+	// merge fields resolve for THIS contact. Gmail also refuses to file a
+	// message in a thread whose subject it does not match, so inheriting is
+	// what makes the thread handle below usable at all.
+	if threadParent != nil {
+		rawSubject = threadParent.Subject
+	}
 	s.resolveFormLinks(ctx, orgID, campaign, contact, &rawSubject, &rawBodyHTML, &rawBodyPlain)
 
 	// STEP 9.75: The recipient's opt-out. The signed link (when the instance
@@ -516,7 +533,13 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 			// A chosen variant is stored template text, so it goes through the
 			// same render as the step's own copy; the control arm comes back
 			// already rendered, for which this pass is a no-op.
-			subject = expandSpintax(RenderTemplateWith(selection.Subject, *contact, extra))
+			//
+			// A threading step is the exception: its subject belongs to the
+			// conversation, not to the arm, so variants on a follow-up vary
+			// the body only.
+			if threadParent == nil {
+				subject = expandSpintax(RenderTemplateWith(selection.Subject, *contact, extra))
+			}
 			bodyHTML = expandSpintax(RenderTemplateWith(selection.BodyHTML, *contact, extra))
 			bodyPlain = expandSpintax(RenderTemplateWith(selection.BodyPlain, *contact, extra))
 			// A variant may carry HTML only; keep the plain-text alternative.
@@ -734,6 +757,15 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 		Tracking:       tracking,
 		UnsubscribeURL: headerURL,
 		Attachments:    attachmentRefs,
+	}
+	if threadParent != nil {
+		emailMsg.InReplyTo = threadParent.MessageID
+		// Only inside the mailbox that owns it: a provider thread handle is
+		// meaningless to another account, and Gmail refuses the send outright
+		// when it names a thread the sender does not have.
+		if threadParent.SenderID == account.ID {
+			emailMsg.ThreadID = threadParent.ThreadID
+		}
 	}
 
 	if err := s.emailSender.Send(ctx, taskID, emailMsg, *account); err != nil {
@@ -965,6 +997,39 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 
 	executionStatus = "completed"
 	return nil
+}
+
+// threadParent resolves the email this step should be sent as a reply to, or
+// nil when it must open a new conversation: the step has reply-in-thread
+// turned off, the contact has had nothing from this campaign yet, or the
+// previous send left no Message-ID to reference.
+//
+// A lookup failure is never fatal. Losing the thread costs the recipient a
+// tidy conversation; refusing the send costs them the email, so a database
+// error here degrades to a new thread and is logged.
+func (s *tasksService) threadParent(ctx context.Context, campaignID, contactID uuid.UUID, sequence *Sequence) *repository.ThreadParent {
+	if sequence == nil || !sequence.ThreadReply {
+		return nil
+	}
+	parent, err := s.campaignProgressRepo.ThreadParentForLead(ctx, campaignID, contactID)
+	if err != nil {
+		log.Warn().Err(err).Str("campaign_id", campaignID.String()).Str("contact_id", contactID.String()).
+			Msg("Could not resolve the thread to reply on; sending as a new conversation")
+		return nil
+	}
+	if parent == nil || parent.MessageID == "" {
+		return nil
+	}
+	if parent.Subject == "" && strings.TrimSpace(sequence.Subject) != "" {
+		// The conversation's subject could not be read (the step that opened
+		// it has been deleted). Send this step's own rather than a blank
+		// Subject header, and give up the provider thread handle with it:
+		// Gmail will not file a message in a thread whose subject it does not
+		// match, so offering one here would only risk the send.
+		parent.Subject = sequence.Subject
+		parent.ThreadID = ""
+	}
+	return parent
 }
 
 // autoPauseCampaign pauses a campaign when no active email accounts are available.
