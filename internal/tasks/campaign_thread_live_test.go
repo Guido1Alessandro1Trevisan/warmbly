@@ -198,3 +198,60 @@ func (f *campaignSendFixture) otherMailbox(t *testing.T, pool *pgxpool.Pool) uui
 	})
 	return id
 }
+
+// The confirmation that carries a send's Message-ID comes back from the
+// worker, so it can be missing: the consumer was down, or the result was lost.
+// The follow-up then has nothing to reply to, which is fine for the headers,
+// but its subject must still be the conversation's. A step authored in the
+// composer has no subject of its own to fall back on, so without this it would
+// ship with no Subject header at all.
+func TestLiveThreadFollowUpKeepsTheSubjectWhenTheParentWasNeverConfirmed(t *testing.T) {
+	handle := liveCampaignDB(t)
+	sender := &recordingSender{}
+	svc := liveCampaignService(t, handle, sender)
+	f := newCampaignSendFixture(t, handle.Pool)
+	f.addFollowUp(t, handle.Pool, "", true)
+
+	f.tick(t, svc)
+	// No confirmSend: the worker's EMAIL_SENT never landed.
+	f.tick(t, svc)
+
+	followUp := sender.message(t, 1)
+	if followUp.Subject != "Hi" {
+		t.Errorf("follow-up subject = %q, want the conversation's", followUp.Subject)
+	}
+	if followUp.InReplyTo != "" || followUp.ThreadID != "" {
+		t.Errorf("follow-up threaded onto an unconfirmed send: in_reply_to=%q thread=%q",
+			followUp.InReplyTo, followUp.ThreadID)
+	}
+}
+
+// The provider handle only goes on a message carrying the conversation's
+// subject, because Gmail refuses to file one that does not match. A step that
+// opened the thread with a subject nothing can reproduce still gets the
+// headers, which is what threads it for the recipient.
+func TestLiveThreadHandleIsDroppedWhenTheConversationSubjectIsGone(t *testing.T) {
+	handle := liveCampaignDB(t)
+	sender := &recordingSender{}
+	svc := liveCampaignService(t, handle, sender)
+	f := newCampaignSendFixture(t, handle.Pool)
+	f.addFollowUp(t, handle.Pool, "", true)
+
+	f.tick(t, svc)
+	f.confirmSend(t, handle.Pool, "<opener@test.local>", "gmail-thread-1")
+	// The step that opened the conversation is gone, so its subject cannot be
+	// read off anything.
+	if _, err := handle.Pool.Exec(context.Background(),
+		`UPDATE sequences SET subject = '' WHERE id = $1`, f.step); err != nil {
+		t.Fatalf("blank the opener's subject: %v", err)
+	}
+
+	f.tick(t, svc)
+	followUp := sender.message(t, 1)
+	if followUp.InReplyTo != "<opener@test.local>" {
+		t.Errorf("follow-up in_reply_to = %q, want the headers to still thread it", followUp.InReplyTo)
+	}
+	if followUp.ThreadID != "" {
+		t.Errorf("follow-up thread = %q, want none: the subject cannot be matched", followUp.ThreadID)
+	}
+}

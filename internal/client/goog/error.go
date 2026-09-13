@@ -13,10 +13,11 @@ import (
 // IsThreadRefusal reports a send Gmail rejected because of the threadId it was
 // given rather than because of the message. Gmail only files a message in a
 // thread when the subject and the reference headers line up with it, and the
-// thread has to still exist in this mailbox; a moved, deleted or foreign
-// thread is a 400/404 naming it. The send provably did not happen, so the
-// caller can safely try again without the thread handle and deliver the email
-// as its own conversation instead of failing the step.
+// thread has to still exist in this mailbox. The send provably did not happen,
+// so the caller can safely try again without the thread handle and deliver the
+// email as its own conversation instead of failing the step.
+//
+// Only ask this about a send that carried a threadId.
 func IsThreadRefusal(err error) bool {
 	if err == nil {
 		return false
@@ -25,10 +26,17 @@ func IsThreadRefusal(err error) bool {
 	if !errors.As(err, &gerr) {
 		return false
 	}
-	if gerr.Code != 400 && gerr.Code != 404 {
-		return false
+	// Beyond the message it is sending, the only entity the request names is
+	// the thread, so a 404 is about the thread whatever it says. Gmail's
+	// wording for a thread that is gone is the generic "Requested entity was
+	// not found", which is why this cannot be a match on the word.
+	if gerr.Code == 404 {
+		return true
 	}
-	return strings.Contains(strings.ToLower(gerr.Message), "thread")
+	// A 400 usually is about the message (a rejected address, a malformed
+	// body), and re-sending those without the handle would only fail again, so
+	// only one that names the thread counts.
+	return gerr.Code == 400 && strings.Contains(strings.ToLower(gerr.Message), "thread")
 }
 
 func HandleError(err error) *errx.MailError {

@@ -226,6 +226,7 @@ export default function StepEmailArms({
                     sharePct={selectedVariant.is_active ? shareOf(selectedVariant.weight) : 0}
                     onTogglePause={(active) => togglePause(selectedVariant.id, active)}
                     onDelete={() => deleteArm(selectedVariant.id)}
+                    inheritedSubject={sequence.thread_reply ? conversationSubject || null : null}
                 />
             )}
         </div>
@@ -240,6 +241,7 @@ function VariantEditor({
     sharePct,
     onTogglePause,
     onDelete,
+    inheritedSubject,
 }: {
     campaignId: string;
     variant: ABVariant;
@@ -248,6 +250,10 @@ function VariantEditor({
     sharePct: number;
     onTogglePause: (active: boolean) => void;
     onDelete: () => void;
+    // Set when the step replies in the contact's thread: the subject belongs
+    // to the conversation, so no arm can carry one of its own and the send
+    // path ignores the column. Null when the step writes its own subject.
+    inheritedSubject?: string | null;
 }) {
     const update = useUpdateABVariant(campaignId);
 
@@ -332,6 +338,14 @@ function VariantEditor({
             <EmailContentEditor
                 subject={subject}
                 onSubjectChange={setSubject}
+                subjectLocked={
+                    inheritedSubject
+                        ? {
+                              subject: inheritedSubject,
+                              note: "This step replies in the contact's thread, so every arm carries the conversation's subject and varies the body only.",
+                          }
+                        : undefined
+                }
                 bodyHtml={bodyHtml}
                 onBodyChange={(html) => setBodyHtml(html)}
                 subjectPlaceholder="Leave blank to reuse the step's subject"

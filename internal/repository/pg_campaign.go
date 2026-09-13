@@ -607,6 +607,7 @@ func (r *campaignRepository) Create(ctx context.Context, userID string, orgID *u
 	// a follow-up that is listed but not connected would never send.
 	if len(data.Sequences) > 0 {
 		stepIDs := make([]uuid.UUID, 0, len(data.Sequences))
+		threadDefaults := models.ThreadReplyDefaults(data.Sequences)
 		for i, seq := range data.Sequences {
 			waitAfter := 0
 			if i > 0 {
@@ -638,10 +639,7 @@ func (r *campaignRepository) Create(ctx context.Context, userID string, orgID *u
 			if bodyHTML == "" {
 				bodyHTML = emptyBodyHTML
 			}
-			// A step written in one shot is a linear sequence, so every
-			// follow-up replies in the thread the first email opened unless
-			// the caller says otherwise.
-			threadReply := true
+			threadReply := threadDefaults[i]
 			if seq.ThreadReply != nil {
 				threadReply = *seq.ThreadReply
 			}

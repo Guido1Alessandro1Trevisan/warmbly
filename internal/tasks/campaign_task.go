@@ -489,12 +489,11 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 	// fallback and gets wrapped by click tracking in STEP 11 like any link.
 	rawSubject, rawBodyHTML, rawBodyPlain := sequence.Subject, sequence.BodyHTML, sequence.BodyPlain
 	// A reply carries the conversation's subject, so a threading step does not
-	// have one of its own: it inherits the parent's, rendered here so the
-	// merge fields resolve for THIS contact. Gmail also refuses to file a
-	// message in a thread whose subject it does not match, so inheriting is
-	// what makes the thread handle below usable at all.
-	if threadParent != nil {
-		rawSubject = threadParent.Subject
+	// have one of its own: it inherits it here, before rendering, so the merge
+	// fields resolve for THIS contact. Empty means the step writes its own.
+	threadSubject := s.threadSubject(ctx, campaign.ID, sequence, threadParent)
+	if threadSubject != "" {
+		rawSubject = threadSubject
 	}
 	s.resolveFormLinks(ctx, orgID, campaign, contact, &rawSubject, &rawBodyHTML, &rawBodyPlain)
 
@@ -537,7 +536,7 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 			// A threading step is the exception: its subject belongs to the
 			// conversation, not to the arm, so variants on a follow-up vary
 			// the body only.
-			if threadParent == nil {
+			if threadSubject == "" {
 				subject = expandSpintax(RenderTemplateWith(selection.Subject, *contact, extra))
 			}
 			bodyHTML = expandSpintax(RenderTemplateWith(selection.BodyHTML, *contact, extra))
@@ -760,10 +759,14 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 	}
 	if threadParent != nil {
 		emailMsg.InReplyTo = threadParent.MessageID
-		// Only inside the mailbox that owns it: a provider thread handle is
-		// meaningless to another account, and Gmail refuses the send outright
-		// when it names a thread the sender does not have.
-		if threadParent.SenderID == account.ID {
+		// The provider handle needs two things the headers do not. It is
+		// meaningless outside the mailbox that owns it, and Gmail will not
+		// file a message in a thread whose subject it does not match, so it
+		// only goes on a message actually carrying the conversation's
+		// subject. Offering one Gmail would refuse costs a failed send; going
+		// without it costs the thread in the sender's own mailbox, and the
+		// recipient still sees a reply.
+		if threadParent.SenderID == account.ID && threadParent.Subject != "" && threadSubject == threadParent.Subject {
 			emailMsg.ThreadID = threadParent.ThreadID
 		}
 	}
@@ -1020,16 +1023,42 @@ func (s *tasksService) threadParent(ctx context.Context, campaignID, contactID u
 	if parent == nil || parent.MessageID == "" {
 		return nil
 	}
-	if parent.Subject == "" && strings.TrimSpace(sequence.Subject) != "" {
-		// The conversation's subject could not be read (the step that opened
-		// it has been deleted). Send this step's own rather than a blank
-		// Subject header, and give up the provider thread handle with it:
-		// Gmail will not file a message in a thread whose subject it does not
-		// match, so offering one here would only risk the send.
-		parent.Subject = sequence.Subject
-		parent.ThreadID = ""
-	}
 	return parent
+}
+
+// threadSubject is the subject a step inherits from the conversation it is
+// replying on, or "" when it writes its own (the switch is off, there is no
+// earlier email, or the conversation has no subject yet).
+//
+// The parent answers it whenever there is one, because that is read off what
+// the contact was actually sent. The campaign's own step order is the fallback
+// for when there is not: a previous send the worker never confirmed leaves no
+// parent, and a threading step authored in the composer has no subject of its
+// own to fall back on, so without this it would ship a blank Subject header.
+func (s *tasksService) threadSubject(ctx context.Context, campaignID uuid.UUID, sequence *Sequence, parent *repository.ThreadParent) string {
+	if sequence == nil || !sequence.ThreadReply {
+		return ""
+	}
+	if parent != nil && parent.Subject != "" {
+		return parent.Subject
+	}
+	seqs, err := s.campaignRepo.GetSequencesByCampaignID(ctx, campaignID)
+	if err != nil {
+		log.Warn().Err(err).Str("campaign_id", campaignID.String()).
+			Msg("Could not read the campaign's steps for the conversation subject")
+		return ""
+	}
+	for i := range seqs {
+		if seqs[i].ID != sequence.ID {
+			continue
+		}
+		// StepSubject returns the step's own when there is nothing to inherit,
+		// which is not an inherited subject and must not read as one.
+		if sub := models.StepSubject(seqs, i); sub != sequence.Subject {
+			return sub
+		}
+	}
+	return ""
 }
 
 // autoPauseCampaign pauses a campaign when no active email accounts are available.

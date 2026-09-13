@@ -26,8 +26,10 @@ func TestIsThreadRefusal(t *testing.T) {
 			true,
 		},
 		{
-			"a 404 naming the thread",
-			&googleapi.Error{Code: 404, Message: "Requested entity was not found: thread"},
+			// Gmail's real wording for a thread that is gone names nothing,
+			// which is the case a match on the word "thread" would miss.
+			"a 404 naming nothing",
+			&googleapi.Error{Code: 404, Message: "Requested entity was not found."},
 			true,
 		},
 		{
@@ -36,7 +38,9 @@ func TestIsThreadRefusal(t *testing.T) {
 			true,
 		},
 		{
-			"a 400 about something else",
+			// Re-sending this without the handle would fail the same way, so
+			// it must not be mistaken for a thread the send can do without.
+			"a 400 about the message",
 			&googleapi.Error{Code: 400, Message: "Invalid To header"},
 			false,
 		},

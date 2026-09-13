@@ -171,8 +171,8 @@ Each email step has a **Reply in thread** switch, on by default. Turn it off for
 - The switch does nothing on a contact's first email. There is nothing to reply to, so it opens the thread.
 - A/B variants on a threading step vary the body only, for the same reason.
 
-<Callout type="info" title="Threading needs the first email to have been confirmed sent">
-The reply headers point at the message id the sending provider put on the wire, which Warmbly learns when the worker reports the send. If that confirmation never arrives, the follow-up still sends, as its own conversation.
+<Callout type="info" title="The reply headers need the first email to have been confirmed sent">
+They point at the message id the sending provider put on the wire, which Warmbly learns when the worker reports the send. If that confirmation never arrives the follow-up still sends, carrying the conversation's subject, but as its own conversation.
 </Callout>
 
 ## A/B variants

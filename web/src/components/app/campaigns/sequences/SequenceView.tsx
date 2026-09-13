@@ -70,6 +70,9 @@ export default function SequenceView({
     // writes its own subject however the switch is set.
     const canThread = conversationSubject !== null;
     const threads = canThread && draft.thread_reply;
+    // A conversation whose opener has no subject yet has nothing to lend, so
+    // the step keeps writing its own. Mirrors models.StepSubject on the server.
+    const inheritsSubject = threads && !!conversationSubject;
     const savable = React.useMemo(() => JSON.stringify(baseline) !== JSON.stringify(draft), [baseline, draft]);
     const patch = (p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p }));
 
@@ -168,7 +171,7 @@ export default function SequenceView({
                     subject={draft.subject}
                     onSubjectChange={(v) => patch({ subject: v })}
                     subjectLocked={
-                        threads
+                        inheritsSubject
                             ? {
                                   subject: conversationSubject ?? "",
                                   note: "A reply carries the conversation's subject. Turn off Reply in thread to write your own.",

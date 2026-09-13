@@ -59,3 +59,58 @@ func TestStepSubjectOutOfRange(t *testing.T) {
 		t.Errorf("StepSubject(_, 3) = %q, want empty", got)
 	}
 }
+
+// ThreadReplyDefaults is what keeps `POST /campaigns` with `steps` behaving the
+// way it always has for a caller that does not know the field exists: a step
+// carrying a subject that is not the conversation's opens a new one, a blank or
+// repeated subject continues it (issue #472).
+func TestThreadReplyDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		subjects []string
+		want     []bool
+	}{
+		{
+			"a blank follow-up continues the conversation, and so does the step after it",
+			[]string{"Quick question", "", "Quick question"},
+			[]bool{true, true, true},
+		},
+		{
+			"a subject of its own opens a new conversation, which the next step then continues",
+			[]string{"Quick question", "New angle", ""},
+			[]bool{true, false, true},
+		},
+		{
+			"a step repeating an older subject, not the current conversation's, opens its own",
+			[]string{"Quick question", "", "New angle", "", "Quick question"},
+			[]bool{true, true, false, true, false},
+		},
+		{
+			"whitespace is not a different subject",
+			[]string{"Quick question", "  Quick question  "},
+			[]bool{true, true},
+		},
+		{
+			"nothing to differ from yet",
+			[]string{"", "Quick question"},
+			[]bool{true, true},
+		},
+		{"no steps", nil, []bool{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			steps := make([]CreateSequenceInput, 0, len(tc.subjects))
+			for _, sub := range tc.subjects {
+				steps = append(steps, CreateSequenceInput{Subject: sub})
+			}
+			got := ThreadReplyDefaults(steps)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d answers, want %d", len(got), len(tc.want))
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("step %d = %v, want %v (subjects %q)", i, got[i], tc.want[i], tc.subjects)
+				}
+			}
+		})
+	}
+}
