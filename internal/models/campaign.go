@@ -452,7 +452,7 @@ type CreateSequenceInput struct {
 // did not say. Steps given in one request are a linear sequence, so a
 // follow-up is a reply; a step carrying a subject that is not the
 // conversation's was written to start a new one, which is what the wizard's
-// blank-subject follow-up has always meant and what migration 000153 applied
+// blank-subject follow-up has always meant and what migration 000154 applied
 // to the steps that already existed.
 //
 // Without it, an integration that has always posted a distinct subject per
