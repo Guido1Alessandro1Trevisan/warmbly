@@ -27981,9 +27981,6 @@
           "score": {
             "type": "integer"
           },
-          "spam_score": {
-            "type": "integer"
-          },
           "evaluated_at": {
             "type": "string",
             "format": "date-time"

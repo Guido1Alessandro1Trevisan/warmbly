@@ -176,7 +176,7 @@ function HealthSummary() {
                 icon={<AlertTriangle className="size-4" />}
                 title="At risk"
                 value={atRisk.toLocaleString()}
-                hint={`avg spam score ${(data.avg_spam_score ?? 0).toFixed(1)}`}
+                hint={`avg health score ${(data.avg_health_score ?? 0).toFixed(1)}`}
                 tone={atRisk > 0 ? "text-amber-700" : undefined}
             />
             <HealthCard

@@ -312,9 +312,6 @@ func (s *service) RecordSpamPlacement(ctx context.Context, reporterAccountID, re
 	if !inserted {
 		return s.getParticipantForAnyPool(ctx, reportedAccountID)
 	}
-	if _, err := s.repo.IncrementSpamScore(ctx, reportedAccountID, 5); err != nil {
-		return nil, errx.InternalError()
-	}
 	// Fan a warmup.placement_in_spam webhook for the sender (best-effort).
 	s.dispatchPlacementInSpam(ctx, reportedAccountID, contentSource, recipientProvider, recipientDomain)
 	return s.evaluateAndPersistAnyPool(ctx, reportedAccountID)
@@ -491,10 +488,6 @@ func (s *service) ApplySpamReport(ctx context.Context, reporterAccountID, report
 		return s.getParticipantForAnyPool(ctx, reportedAccountID)
 	}
 
-	if _, err := s.repo.IncrementSpamScore(ctx, reportedAccountID, 10); err != nil {
-		return nil, errx.InternalError()
-	}
-
 	return s.evaluateAndPersistAnyPool(ctx, reportedAccountID)
 }
 
@@ -594,9 +587,6 @@ func (s *service) loadMetrics(ctx context.Context, accountID uuid.UUID, particip
 	sentLast7d, spamPlacementsLast7d, userComplaintsLast7d := counts.SentLast7d, counts.SpamPlacementsLast7d, counts.UserComplaintsLast7d
 	complaintsLast30d, bouncesLast30d, deliveredLast30d := counts.ComplaintsLast30d, counts.BouncesLast30d, counts.DeliveredLast30d
 
-	// The score is on the row already in hand; a mailbox is in one pool (000097).
-	spamScore := participant.SpamScore
-
 	// Placement (the provider's classifier) and complaint (the recipient) have
 	// different remediation paths, so they earn separate rates.
 	placementRate := 0.0
@@ -621,7 +611,6 @@ func (s *service) loadMetrics(ctx context.Context, accountID uuid.UUID, particip
 		SpamPlacementRate:    placementRate,
 		UserComplaintsLast7d: userComplaintsLast7d,
 		WarmupComplaintRate:  warmupComplaintRate,
-		SpamScore:            spamScore,
 		ComplaintsLast30d:    complaintsLast30d,
 		DeliveredLast30d:     deliveredLast30d,
 		ComplaintRate:        complaintRate,
@@ -878,7 +867,7 @@ func (s *service) GetPoolHealthSummary(ctx context.Context) (*models.WarmupPoolH
 	return &models.WarmupPoolHealthSummary{
 		TotalParticipants:       total,
 		ByState:                 counts,
-		AvgSpamScore:            avgScore,
+		AvgHealthScore:          avgScore,
 		AvgSpamPlacement:        placementRate,
 		SpamPlacementByProvider: byProvider,
 		BlockedCount:            blockedCount,

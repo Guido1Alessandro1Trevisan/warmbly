@@ -120,9 +120,9 @@ func TestLiveJoiningTheOtherPoolMovesTheMailboxRatherThanDuplicatingIt(t *testin
 	}
 }
 
-// Moving pools must not launder a penalty. A fresh row would start healthy with
-// a zero score, which is how a blocked mailbox could have re-entered the pool it
-// was blocked out of.
+// Moving pools must not launder a penalty. A fresh row would start healthy,
+// which is how a blocked mailbox could have re-entered the pool it was
+// blocked out of.
 func TestLiveMovingPoolsCarriesTheMailboxReputation(t *testing.T) {
 	repo, handle := liveWarmupRepo(t)
 	f := newPoolMailbox(t, handle, "premium")
@@ -130,7 +130,7 @@ func TestLiveMovingPoolsCarriesTheMailboxReputation(t *testing.T) {
 
 	if _, err := handle.Pool.Exec(ctx, `
 		UPDATE warmup_pool_participants
-		SET spam_score = 47, health_state = 'blocked', blocked_at = NOW(),
+		SET last_health_score = 47, health_state = 'blocked', blocked_at = NOW(),
 		    blocked_until = NOW() + INTERVAL '30 days', blocked_reason = 'tampering'
 		WHERE email_account_id = $1`, f.account); err != nil {
 		t.Fatalf("stain the mailbox: %v", err)
@@ -153,8 +153,8 @@ func TestLiveMovingPoolsCarriesTheMailboxReputation(t *testing.T) {
 	if health.HealthState != models.WarmupHealthBlocked {
 		t.Fatalf("health %q after the move, want it still blocked", health.HealthState)
 	}
-	if health.SpamScore != 47 {
-		t.Fatalf("spam score %d after the move, want 47", health.SpamScore)
+	if health.LastHealthScore != 47 {
+		t.Fatalf("health score %v after the move, want 47", health.LastHealthScore)
 	}
 	if health.BlockedUntil == nil {
 		t.Fatal("the block expiry was dropped by the move")
@@ -203,67 +203,6 @@ func TestLiveASecondPoolMembershipIsRejected(t *testing.T) {
 		models.WarmupPoolFreeID, f.account)
 	if err == nil {
 		t.Fatal("the database accepted a mailbox into two warmup pools")
-	}
-}
-
-// The score is the mailbox's, not the pool row's. Summing it across memberships
-// counted every increment twice for a dual-member mailbox.
-func TestLiveSpamScoreIsCountedOnce(t *testing.T) {
-	repo, handle := liveWarmupRepo(t)
-	f := newPoolMailbox(t, handle, "premium")
-	ctx := context.Background()
-
-	after, err := repo.IncrementSpamScore(ctx, f.account, 5)
-	if err != nil {
-		t.Fatalf("increment: %v", err)
-	}
-	if after != 5 {
-		t.Fatalf("increment returned %d, want 5", after)
-	}
-
-	row, err := repo.GetParticipantHealthForAccount(ctx, f.account)
-	if err != nil || row == nil {
-		t.Fatalf("read row: %v", err)
-	}
-	if row.SpamScore != 5 {
-		t.Fatalf("score %d, want 5", row.SpamScore)
-	}
-}
-
-// The column caps the score at 100. Adding past the cap used to violate the
-// CHECK, and every caller ignores the error, so a noisy mailbox silently kept
-// whatever score it had.
-func TestLiveSpamScoreClampsInsteadOfFailing(t *testing.T) {
-	repo, handle := liveWarmupRepo(t)
-	f := newPoolMailbox(t, handle, "premium")
-	ctx := context.Background()
-
-	if _, err := handle.Pool.Exec(ctx,
-		`UPDATE warmup_pool_participants SET spam_score = 97 WHERE email_account_id = $1`, f.account); err != nil {
-		t.Fatalf("preload score: %v", err)
-	}
-
-	after, err := repo.IncrementSpamScore(ctx, f.account, 10)
-	if err != nil {
-		t.Fatalf("increment past the ceiling: %v", err)
-	}
-	if after != 100 {
-		t.Fatalf("score %d, want it clamped to 100", after)
-	}
-}
-
-// A late signal about a mailbox that just left warmup is normal, not an error.
-func TestLiveSpamScoreForAMailboxInNoPoolIsNotAFailure(t *testing.T) {
-	repo, handle := liveWarmupRepo(t)
-	f := newPoolMailbox(t, handle, "")
-	ctx := context.Background()
-
-	after, err := repo.IncrementSpamScore(ctx, f.account, 5)
-	if err != nil {
-		t.Fatalf("increment for a non-participant: %v", err)
-	}
-	if after != 0 {
-		t.Fatalf("score %d, want 0", after)
 	}
 }
 

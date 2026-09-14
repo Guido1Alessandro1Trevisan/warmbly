@@ -192,7 +192,6 @@ type AdminWorkerEmail struct {
 	RiskBand        string     `json:"risk_band"` // clean | risky | quarantine
 	RiskEvaluatedAt *time.Time `json:"risk_evaluated_at,omitempty"`
 	WarmupHealth    string     `json:"warmup_health,omitempty"` // worst warmup health_state, "" if not in a pool
-	SpamScore       *int       `json:"spam_score,omitempty"`
 	BlockedUntil    *time.Time `json:"blocked_until,omitempty"`
 }
 
@@ -620,15 +619,14 @@ type WarmupPoolInfo struct {
 
 // WarmupPoolParticipant represents a participant in a warmup pool
 type WarmupPoolParticipant struct {
-	ID              uuid.UUID  `json:"id"`
-	Email           string     `json:"email"`
-	UserID          uuid.UUID  `json:"user_id"`
-	JoinedAt        time.Time  `json:"joined_at"`
-	EmailsSent      int64      `json:"emails_sent"`
-	EmailsReceived  int64      `json:"emails_received"`
-	ReputationScore float64    `json:"reputation_score"`
-	IsBlocked       bool       `json:"is_blocked"`
-	BlockedAt       *time.Time `json:"blocked_at,omitempty"`
+	ID             uuid.UUID  `json:"id"`
+	Email          string     `json:"email"`
+	UserID         uuid.UUID  `json:"user_id"`
+	JoinedAt       time.Time  `json:"joined_at"`
+	EmailsSent     int64      `json:"emails_sent"`
+	EmailsReceived int64      `json:"emails_received"`
+	IsBlocked      bool       `json:"is_blocked"`
+	BlockedAt      *time.Time `json:"blocked_at,omitempty"`
 
 	// Joined data
 	User *AdminUserSummary `json:"user,omitempty"`

@@ -274,7 +274,6 @@ func (s *analyticsService) buildWarmupHealth(ctx context.Context, accountID uuid
 		info := &models.WarmupHealthInfo{
 			State:        string(h.HealthState),
 			Score:        h.LastHealthScore,
-			SpamScore:    h.SpamScore,
 			BlockedUntil: h.BlockedUntil,
 			EvaluatedAt:  h.LastHealthEvaluatedAt,
 		}

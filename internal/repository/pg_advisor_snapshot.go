@@ -56,7 +56,7 @@ func (r *advisorRepository) loadMailboxes(ctx context.Context, orgID uuid.UUID) 
 			COALESCE(sent.d7, 0), COALESCE(sent.d1, 0), COALESCE(sent.d30, 0),
 			COALESCE(dl.bounces, 0), COALESCE(dl.complaints, 0),
 			COALESCE(w.sent7, 0), COALESCE(w.recv7, 0), COALESCE(ws.spam7, 0),
-			COALESCE(p.health_state, ''), COALESCE(p.spam_score, 0),
+			COALESCE(p.health_state, ''), COALESCE(p.last_health_score, 0), COALESCE(p.last_health_reason, ''),
 			COALESCE(p.blocked_until > NOW(), false) AS pool_blocked,
 			COALESCE(err.n, 0),
 			COALESCE(camp.active, false)
@@ -96,7 +96,7 @@ func (r *advisorRepository) loadMailboxes(ctx context.Context, orgID uuid.UUID) 
 			  AND sr.created_at > NOW() - INTERVAL '7 days'
 		) ws ON true
 		LEFT JOIN LATERAL (
-			SELECT wpp.health_state, wpp.spam_score, wpp.blocked_until
+			SELECT wpp.health_state, wpp.last_health_score, wpp.last_health_reason, wpp.blocked_until
 			FROM warmup_pool_participants wpp
 			WHERE wpp.email_account_id = ea.id
 			ORDER BY wpp.joined_at DESC
@@ -149,7 +149,7 @@ func (r *advisorRepository) loadMailboxes(ctx context.Context, orgID uuid.UUID) 
 			&m.ColdSent7d, &m.ColdSent1d, &m.ColdSent30d,
 			&m.Bounces30d, &m.Complaints30d,
 			&m.WarmupSent7d, &m.WarmupRecv7d, &m.WarmupSpam7d,
-			&m.PoolHealth, &m.PoolSpamScore, &m.PoolBlocked,
+			&m.PoolHealth, &m.PoolHealthScore, &m.PoolHealthReason, &m.PoolBlocked,
 			&m.UnresolvedErrs, &m.InActiveCampaign,
 		); err != nil {
 			return nil, err

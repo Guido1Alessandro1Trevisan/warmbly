@@ -100,16 +100,3 @@ func TestSweepStopsAtItsDeadline(t *testing.T) {
 		t.Fatalf("kept reading after the deadline: %v", repo.calls)
 	}
 }
-
-// The score comes off the row in hand, and the decision must still see it.
-func TestEvaluateReadsTheSpamScoreFromTheRow(t *testing.T) {
-	row := &models.WarmupParticipantHealth{EmailAccountID: uuid.New(), PoolType: "free", HealthState: models.WarmupHealthHealthy, SpamScore: 73}
-	repo := &countingRepo{calls: map[string]int{}, rows: []models.WarmupParticipantHealth{*row}}
-	metrics, err := NewService(repo).(*service).loadMetrics(context.Background(), row.EmailAccountID, row)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if metrics.SpamScore != 73 {
-		t.Fatalf("SpamScore = %d, want the row's 73", metrics.SpamScore)
-	}
-}

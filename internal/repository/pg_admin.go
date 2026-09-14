@@ -870,11 +870,10 @@ func (r *adminRepository) GetWorkerEmails(ctx context.Context, workerID uuid.UUI
 			COALESCE(ea.risk_band, 'clean'::email_risk_band)::text,
 			ea.risk_evaluated_at,
 			COALESCE(wh.health_state, '')::text,
-			wh.spam_score,
 			wh.blocked_until
 		FROM email_accounts ea
 		LEFT JOIN LATERAL (
-			SELECT health_state, spam_score, blocked_until
+			SELECT health_state, blocked_until
 			FROM warmup_pool_participants
 			WHERE email_account_id = ea.id
 			ORDER BY CASE health_state
@@ -904,7 +903,7 @@ func (r *adminRepository) GetWorkerEmails(ctx context.Context, workerID uuid.UUI
 		err := rows.Scan(
 			&e.ID, &e.Email, &e.UserID, &e.OrganizationID,
 			&e.Status, &e.Provider, &e.WarmupEnabled, &e.LastSyncedAt,
-			&e.RiskBand, &e.RiskEvaluatedAt, &e.WarmupHealth, &e.SpamScore, &e.BlockedUntil,
+			&e.RiskBand, &e.RiskEvaluatedAt, &e.WarmupHealth, &e.BlockedUntil,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1024,7 +1023,7 @@ func (r *adminRepository) GetPoolParticipants(ctx context.Context, poolType stri
 	query := `
 		SELECT
 			wpp.email_account_id, ea.email, ea.user_id::uuid,
-			wpp.joined_at, wpp.spam_score,
+			wpp.joined_at,
 			wpp.blocked_at IS NOT NULL OR wpp.health_state IN ('quarantined', 'blocked'),
 			wpp.blocked_at,
 			COALESCE((SELECT SUM(ws.emails_sent) FROM warmup_statistics ws WHERE ws.email_account_id = wpp.email_account_id), 0),
@@ -1048,7 +1047,7 @@ func (r *adminRepository) GetPoolParticipants(ctx context.Context, poolType stri
 		var p models.WarmupPoolParticipant
 		if err := rows.Scan(
 			&p.ID, &p.Email, &p.UserID,
-			&p.JoinedAt, &p.ReputationScore,
+			&p.JoinedAt,
 			&p.IsBlocked, &p.BlockedAt,
 			&p.EmailsSent, &p.EmailsReceived,
 		); err != nil {
@@ -1187,8 +1186,7 @@ func (r *adminRepository) UnblockAccount(ctx context.Context, accountID uuid.UUI
 		    blocked_until = NULL,
 		    last_health_reason = 'unblocked by admin',
 		    last_health_evaluated_at = NOW(),
-		    last_health_score = 0,
-		    spam_score = 0
+		    last_health_score = 0
 		WHERE email_account_id = $1
 	`, accountID)
 	return err
@@ -1332,8 +1330,7 @@ func (r *adminRepository) ReviewAppeal(ctx context.Context, appealID uuid.UUID, 
 				    blocked_until = NULL,
 				    last_health_reason = 'appeal approved',
 				    last_health_evaluated_at = NOW(),
-				    last_health_score = 0,
-				    spam_score = 0
+				    last_health_score = 0
 				WHERE email_account_id = $1
 			`, accountID)
 			if err != nil {

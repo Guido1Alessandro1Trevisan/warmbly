@@ -170,7 +170,6 @@ type WarmupHealthInfo struct {
 	State        string     `json:"state"` // healthy/watch/throttled/quarantined/blocked
 	Score        float64    `json:"score"`
 	Reason       string     `json:"reason,omitempty"`
-	SpamScore    int        `json:"spam_score"`
 	BlockedUntil *time.Time `json:"blocked_until,omitempty"`
 	EvaluatedAt  *time.Time `json:"evaluated_at,omitempty"`
 }

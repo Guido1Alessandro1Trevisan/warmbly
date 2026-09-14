@@ -60,7 +60,6 @@ export interface AdminWorkerEmail {
     risk_band: string; // clean | risky | quarantine
     risk_evaluated_at?: string | null;
     warmup_health?: string; // worst warmup health_state, "" if not in a pool
-    spam_score?: number | null;
     blocked_until?: string | null;
 }
 
@@ -479,7 +478,7 @@ export type WarmupAppealStatus = "pending" | "approved" | "rejected";
 export interface WarmupPoolHealthSummary {
     total_participants: number;
     by_state: Record<string, number>;
-    avg_spam_score: number;
+    avg_health_score: number;
     avg_spam_placement_rate: number;
     spam_placement_by_provider: Record<string, number>;
     blocked_count: number;

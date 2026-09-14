@@ -85,7 +85,6 @@ type mailboxProfile struct {
 	paused        bool
 	healthState   string
 	healthScore   int
-	spamScore     int
 	campaignToday int // today's cold sends (daily_email_counts)
 	accountAge    int // created_at, days ago
 }
@@ -104,37 +103,37 @@ func profileFor(i int) mailboxProfile {
 	case i < 6:
 		return mailboxProfile{
 			warmupDaysAgo: 45 + i*3, warmupBase: 10, warmupInc: 1, warmupMax: 40 + (i%3)*5,
-			healthState: "healthy", healthScore: 93 + i%6, spamScore: i % 3,
+			healthState: "healthy", healthScore: 93 + i%6,
 			campaignToday: 45 + (i*3)%11, accountAge: 60 + i*4,
 		}
 	case i < 14:
 		return mailboxProfile{
 			warmupDaysAgo: 5 + (i - 6) + (i % 3), warmupBase: 10, warmupInc: 2, warmupMax: 40,
-			healthState: "healthy", healthScore: 84 + (i*7)%12, spamScore: (i * 3) % 6,
+			healthState: "healthy", healthScore: 84 + (i*7)%12,
 			campaignToday: 14 + (i*5)%17, accountAge: 25 + i,
 		}
 	case i < 17:
 		return mailboxProfile{
 			warmupDaysAgo: i - 13, warmupBase: 10, warmupInc: 2, warmupMax: 40,
-			healthState: "healthy", healthScore: 80 + (i*5)%9, spamScore: 0,
+			healthState: "healthy", healthScore: 80 + (i*5)%9,
 			campaignToday: 4 + i%5, accountAge: 4 + (i - 13),
 		}
 	case i == 17:
 		return mailboxProfile{
 			warmupDaysAgo: 12, warmupBase: 10, warmupInc: 2, warmupMax: 40,
-			healthState: "healthy", healthScore: 88, spamScore: 1,
+			healthState: "healthy", healthScore: 88,
 			campaignToday: 18, accountAge: 30,
 		}
 	case i == 18:
 		return mailboxProfile{
 			warmupDaysAgo: 9, warmupBase: 10, warmupInc: 2, warmupMax: 40,
-			healthState: "watch", healthScore: 62, spamScore: 14,
+			healthState: "watch", healthScore: 62,
 			campaignToday: 6, accountAge: 28,
 		}
 	default:
 		return mailboxProfile{
 			warmupDaysAgo: 50, warmupBase: 10, warmupInc: 1, warmupMax: 50,
-			healthState: "healthy", healthScore: 90, spamScore: 2,
+			healthState: "healthy", healthScore: 90,
 			campaignToday: 48, accountAge: 70,
 		}
 	}
@@ -478,10 +477,10 @@ func seedMailboxes(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		if _, err := pool.Exec(ctx, `
 			UPDATE warmup_pool_participants
-			   SET health_state = $2, last_health_score = $3, spam_score = $4,
+			   SET health_state = $2, last_health_score = $3,
 			       last_health_evaluated_at = NOW(), blocked_at = NULL, blocked_until = NULL
 			 WHERE email_account_id = $1`,
-			m.id, p.healthState, p.healthScore, p.spamScore); err != nil {
+			m.id, p.healthState, p.healthScore); err != nil {
 			return fmt.Errorf("pool health %s: %w", m.email, err)
 		}
 		// Give the first few mailboxes a sending-behaviour profile so the

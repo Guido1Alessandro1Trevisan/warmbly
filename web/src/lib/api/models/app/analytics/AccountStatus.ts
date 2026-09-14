@@ -55,7 +55,6 @@ export interface WarmupHealthInfo {
     state: "healthy" | "watch" | "throttled" | "quarantined" | "blocked";
     score: number;
     reason?: string;
-    spam_score: number;
     blocked_until?: string | null;
     evaluated_at?: string | null;
 }

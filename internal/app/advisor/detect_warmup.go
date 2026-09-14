@@ -39,7 +39,7 @@ func warmupDetectors() []Detector {
 		{
 			Key:      "warmup_pool_blocked",
 			Category: models.AdvisorCategoryWarmup,
-			About:    "A mailbox quarantined or blocked from the shared warmup pool for spam score or suspicious verification behaviour. Pool standing is the platform's own read on whether a mailbox is safe to keep in shared reputation surfaces.",
+			About:    "A mailbox quarantined or blocked from the shared warmup pool for its spam placement, complaint or bounce rate, or for tampering with warmup mail it received. Pool standing is the platform's own read on whether a mailbox is safe to keep in shared reputation surfaces.",
 			Run:      detectWarmupPoolBlocked,
 		},
 	}
@@ -245,11 +245,12 @@ func detectWarmupPoolBlocked(s *repository.AdvisorSnapshot) []Finding {
 			EntityType:  "email_account",
 			EntityID:    ref(m.ID),
 			EntityLabel: m.Email,
-			Impact:      clampImpact(70 + m.PoolSpamScore/4),
+			Impact:      clampImpact(70 + int(m.PoolHealthScore)/4),
 			Title:       fmt.Sprintf("%s is %s in the warmup pool", m.Email, state),
 			Detail: fmt.Sprintf(
-				"The warmup pool has marked %s as %s (spam score %d). Pool standing is the platform's own read on whether a mailbox is safe to keep in shared reputation surfaces, and it moved before mailbox providers did%s.",
-				m.Email, state, m.PoolSpamScore,
+				"The warmup pool has marked %s as %s%s. Pool standing is the platform's own read on whether a mailbox is safe to keep in shared reputation surfaces, and it moved before mailbox providers did%s.",
+				m.Email, state,
+				map[bool]string{true: " (" + m.PoolHealthReason + ")", false: ""}[m.PoolHealthReason != ""],
 				map[bool]string{true: ". This mailbox is still running cold campaigns", false: ""}[m.InActiveCampaign]),
 			Remedy: "Stop cold sending from this mailbox until it requalifies. Re-entry needs healthy authentication, no recent complaints or hard-bounce spikes, and spam placement back under 10% on a fresh sample.",
 			Steps: []string{
@@ -262,7 +263,7 @@ func detectWarmupPoolBlocked(s *repository.AdvisorSnapshot) []Finding {
 			Evidence: map[string]any{
 				"mailbox":                m.Email,
 				"pool_state":             state,
-				"spam_score":             m.PoolSpamScore,
+				"pool_health_reason":     m.PoolHealthReason,
 				"pool_type":              m.WarmupPoolType,
 				"currently_sending_cold": m.InActiveCampaign,
 			},

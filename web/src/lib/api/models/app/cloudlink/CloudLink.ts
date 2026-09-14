@@ -89,7 +89,6 @@ export interface PoolLinkWarmupHealth {
     state: "healthy" | "watch" | "throttled" | "quarantined" | "blocked";
     score: number;
     reason?: string;
-    spam_score: number;
     blocked_until?: Date | null;
     evaluated_at?: Date | null;
 }

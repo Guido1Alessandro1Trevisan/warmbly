@@ -119,7 +119,6 @@ type WarmupParticipantHealth struct {
 	BlockedAt             *time.Time        `json:"blocked_at,omitempty"`
 	BlockedUntil          *time.Time        `json:"blocked_until,omitempty"`
 	BlockedReason         *string           `json:"blocked_reason,omitempty"`
-	SpamScore             int               `json:"spam_score"`
 	HealthState           WarmupHealthState `json:"health_state"`
 	LastHealthScore       float64           `json:"last_health_score"`
 	LastHealthReason      *string           `json:"last_health_reason,omitempty"`
@@ -148,8 +147,9 @@ type WarmupBanStatus struct {
 type WarmupPoolHealthSummary struct {
 	TotalParticipants int            `json:"total_participants"`
 	ByState           map[string]int `json:"by_state"`
-	AvgSpamScore      float64        `json:"avg_spam_score"`
-	AvgSpamPlacement  float64        `json:"avg_spam_placement_rate"`
+	// AvgHealthScore averages last_health_score: the severity the bands decided.
+	AvgHealthScore   float64 `json:"avg_health_score"`
+	AvgSpamPlacement float64 `json:"avg_spam_placement_rate"`
 	// Keyed by who runs the recipient's mail, the vocabulary routing reads.
 	SpamPlacementByProvider map[string]int `json:"spam_placement_by_provider"`
 	BlockedCount            int            `json:"blocked_count"`
@@ -182,7 +182,6 @@ type WarmupHealthMetrics struct {
 	UserComplaintsLast7d int     `json:"user_complaints_last_7d"`
 	WarmupComplaintRate  float64 `json:"warmup_complaint_rate"`
 
-	SpamScore         int     `json:"spam_score"`
 	ComplaintsLast30d int     `json:"complaints_last_30d"`
 	DeliveredLast30d  int     `json:"delivered_last_30d"`
 	ComplaintRate     float64 `json:"complaint_rate"`

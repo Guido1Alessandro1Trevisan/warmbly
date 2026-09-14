@@ -33,7 +33,6 @@ type WarmupPoolParticipant struct {
 	BlockedAt             *time.Time
 	BlockedUntil          *time.Time
 	BlockedReason         *string
-	SpamScore             int
 	HealthState           models.WarmupHealthState
 	LastHealthScore       float64
 	LastHealthReason      *string
@@ -149,8 +148,6 @@ type WarmupRepository interface {
 
 	// Spam tracking
 	RecordSpamReport(ctx context.Context, report *SpamReport) (bool, error)
-	IncrementSpamScore(ctx context.Context, accountID uuid.UUID, amount int) (int, error)
-	ResetSpamScore(ctx context.Context, accountID uuid.UUID) error
 
 	// Statistics
 	IncrementDailyCount(ctx context.Context, accountID uuid.UUID, date time.Time) error
@@ -292,9 +289,9 @@ func (r *warmupRepository) MoveToPool(ctx context.Context, poolID, accountID uui
 		// The insert is itself a write, so the trigger re-mirrors it.
 		_, err = tx.Exec(ctx, `
 			INSERT INTO warmup_pool_participants
-			    (pool_id, email_account_id, joined_at, spam_score, participant_role,
+			    (pool_id, email_account_id, joined_at, participant_role,
 			     health_state, blocked_at, blocked_until, blocked_reason, last_health_score, last_health_reason)
-			SELECT $1::uuid, $2::uuid, NOW(), COALESCE(l.spam_score, 0), $3::text,
+			SELECT $1::uuid, $2::uuid, NOW(), $3::text,
 			       COALESCE(l.health_state, 'healthy'), l.blocked_at, l.blocked_until, l.blocked_reason,
 			       COALESCE(l.last_health_score, 0), l.last_health_reason
 			  FROM email_accounts a
@@ -505,7 +502,6 @@ const participantHealthColumns = `
 			wpp.blocked_at,
 			wpp.blocked_until,
 			wpp.blocked_reason,
-			wpp.spam_score,
 			wpp.health_state,
 			wpp.last_health_score,
 			wpp.last_health_reason,
@@ -543,7 +539,6 @@ func (r *warmupRepository) scanParticipantHealth(row pgx.Row) (*models.WarmupPar
 		&out.BlockedAt,
 		&out.BlockedUntil,
 		&out.BlockedReason,
-		&out.SpamScore,
 		&state,
 		&out.LastHealthScore,
 		&out.LastHealthReason,
@@ -623,7 +618,7 @@ func (r *warmupRepository) UpdateParticipantHealth(ctx context.Context, accountI
 		WHERE p.email_account_id = eff.email_account_id
 		  AND NOT (p.blocked_at IS NOT NULL AND p.blocked_until IS NULL AND p.health_state = 'blocked')
 		RETURNING p.pool_id, '', p.email_account_id, p.joined_at, p.blocked_at, p.blocked_until, p.blocked_reason,
-		          p.spam_score, p.health_state, p.last_health_score, p.last_health_reason,
+		          p.health_state, p.last_health_score, p.last_health_reason,
 		          p.last_health_evaluated_at, p.health_signals_from
 	`
 	// The RETURNING list is participantHealthSelect's shape with an empty pool
@@ -795,37 +790,6 @@ func (r *warmupRepository) SumWarmupSentSince(ctx context.Context, accountID uui
 	var total int
 	err := r.db.QueryRow(ctx, query, accountID, since).Scan(&total)
 	return total, err
-}
-
-// IncrementSpamScore raises the account's spam score, clamped to the column's CHECK ceiling
-// (past it the UPDATE failed and every caller ignores that error). A mailbox in no pool has no
-// score to raise, which is normal for a late signal, not a failure.
-func (r *warmupRepository) IncrementSpamScore(ctx context.Context, accountID uuid.UUID, amount int) (int, error) {
-	query := `
-		UPDATE warmup_pool_participants
-		SET spam_score = LEAST(100, GREATEST(0, spam_score + $1))
-		WHERE email_account_id = $2
-		RETURNING spam_score
-	`
-
-	var newScore int
-	err := r.db.QueryRow(ctx, query, amount, accountID).Scan(&newScore)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
-	}
-	return newScore, err
-}
-
-// ResetSpamScore resets the spam score for an account
-func (r *warmupRepository) ResetSpamScore(ctx context.Context, accountID uuid.UUID) error {
-	query := `
-		UPDATE warmup_pool_participants
-		SET spam_score = 0
-		WHERE email_account_id = $1
-	`
-
-	_, err := r.db.Exec(ctx, query, accountID)
-	return err
 }
 
 // IncrementDailyCount increments the daily email count for warmup
@@ -1566,10 +1530,10 @@ func (r *warmupRepository) GetAllParticipantAccountIDs(ctx context.Context) ([]u
 	return ids, rows.Err()
 }
 
-// GetPoolHealthCounts returns counts per health state and average spam score
+// GetPoolHealthCounts returns counts per health state and the average band score
 func (r *warmupRepository) GetPoolHealthCounts(ctx context.Context) (map[string]int, float64, error) {
 	query := `
-		SELECT health_state, COUNT(*), AVG(spam_score)
+		SELECT health_state, COUNT(*), AVG(last_health_score)
 		FROM warmup_pool_participants
 		GROUP BY health_state
 	`

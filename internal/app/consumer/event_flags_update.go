@@ -52,7 +52,6 @@ func (s *JobsService) HandleFlagsAdd(ctx context.Context, e *models.JobEventFlag
 						// only. Blocking is owned solely by the banded health model
 						// (evaluateMetrics) so all blocks carry a blocked_until +
 						// appeal path; the old permanent auto-block diverged from it.
-						_, _ = s.WarmupRepo.IncrementSpamScore(ctx, token.SenderAccountID, 10)
 						s.markRiskBandFromWarmupHealth(ctx, token.SenderAccountID, nil)
 					}
 				}

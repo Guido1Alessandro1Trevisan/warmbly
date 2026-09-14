@@ -55,18 +55,19 @@ type AdvisorMailbox struct {
 	// ColdSent7d / ColdSent1d count completed campaign sends. Bounces and
 	// complaints are 30-day windows, matching the documented complaint sample
 	// floor.
-	ColdSent7d     int
-	ColdSent1d     int
-	ColdSent30d    int
-	Bounces30d     int
-	Complaints30d  int
-	WarmupSent7d   int
-	WarmupSpam7d   int
-	WarmupRecv7d   int
-	PoolHealth     string
-	PoolSpamScore  int
-	PoolBlocked    bool
-	UnresolvedErrs int
+	ColdSent7d       int
+	ColdSent1d       int
+	ColdSent30d      int
+	Bounces30d       int
+	Complaints30d    int
+	WarmupSent7d     int
+	WarmupSpam7d     int
+	WarmupRecv7d     int
+	PoolHealth       string
+	PoolHealthScore  float64
+	PoolHealthReason string
+	PoolBlocked      bool
+	UnresolvedErrs   int
 	// InActiveCampaign is true when at least one running campaign can send
 	// through this mailbox (tag match or explicit sender).
 	InActiveCampaign bool

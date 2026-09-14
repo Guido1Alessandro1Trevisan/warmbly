@@ -108,7 +108,7 @@ Warmbly recognizes inbound warmup by its token and files it automatically, inclu
 
 ## Pool safety
 
-Shared pools only work if participants behave, so each mailbox accumulates a spam score from negative signals: complaints, spam-folder placement, bounces, and tampering with warmup mail it received, such as deleting it or flagging it as spam.
+Shared pools only work if participants behave, so every mailbox is judged on rates rather than raw counts: complaints, spam-folder placement, bounces, and tampering with warmup mail it received, such as deleting it or flagging it as spam. Each band needs a minimum sample before it acts, so a slow week cannot convict a mailbox and a busy one is not punished for its volume.
 
 | State | Meaning | Effect |
 |-------|---------|--------|

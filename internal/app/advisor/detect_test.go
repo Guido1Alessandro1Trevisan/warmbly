@@ -596,7 +596,8 @@ func TestEveryFindingOffersAWayForward(t *testing.T) {
 	m.TrackingDomain = ""
 	m.InActiveCampaign = true
 	m.PoolBlocked = true
-	m.PoolSpamScore = 80
+	m.PoolHealthScore = 80
+	m.PoolHealthReason = "warmup spam placement 50.0% exceeded block threshold"
 
 	findings := Detect(snapshotOf(m), defaults())
 	if len(findings) < 5 {
@@ -650,5 +651,40 @@ func TestDNSFindingsShipThePasteableRecord(t *testing.T) {
 	}
 	if !strings.Contains(joined, "p=none") {
 		t.Errorf("DMARC record should start in monitor-only mode:\n%s", joined)
+	}
+}
+
+// The finding used to print a spam score that had not caused the state it
+// described: nothing read that number, and it grew with volume rather than
+// with misbehaviour (#491). It now prints the band's own reason.
+func TestWarmupPoolFindingExplainsItselfWithTheBandsReason(t *testing.T) {
+	m := healthyMailbox()
+	m.PoolHealth = "blocked"
+	m.PoolBlocked = true
+	m.PoolHealthScore = 62
+	m.PoolHealthReason = "warmup spam placement 44.0% exceeded block threshold"
+
+	var found *Finding
+	findings := Detect(snapshotOf(m), defaults())
+	for i := range findings {
+		if findings[i].Key == "warmup_pool_blocked" {
+			found = &findings[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("a blocked mailbox produced no warmup_pool_blocked finding")
+	}
+	if !strings.Contains(found.Detail, m.PoolHealthReason) {
+		t.Fatalf("detail does not say why the band acted: %q", found.Detail)
+	}
+	if strings.Contains(strings.ToLower(found.Detail), "spam score") {
+		t.Fatalf("detail still quotes a spam score: %q", found.Detail)
+	}
+	if got := found.Evidence["pool_health_reason"]; got != m.PoolHealthReason {
+		t.Fatalf("evidence pool_health_reason = %v, want the band's reason", got)
+	}
+	if _, ok := found.Evidence["spam_score"]; ok {
+		t.Fatal("evidence still carries a spam score")
 	}
 }
