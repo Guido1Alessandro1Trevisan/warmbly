@@ -2748,6 +2748,194 @@
         }
       }
     },
+    "/emails/{id}/identity": {
+      "get": {
+        "operationId": "mailboxes_send_identity",
+        "summary": "Get the sending identity",
+        "description": "Which addresses the mailbox's provider will let it send as, which one it uses, and where its stored signature came from. Stored state only: the provider is not contacted.",
+        "tags": [
+          "mailboxes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The mailbox id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The mailbox's sending identity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailboxSendIdentity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope, permission, or mailbox not allowed for this key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Mailbox not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/emails/{id}/identity/refresh": {
+      "post": {
+        "operationId": "mailboxes_refresh_send_identity",
+        "summary": "Refresh the sending identity",
+        "description": "Re-reads the send-as addresses from the provider and stores them, optionally importing the provider's signature. A send-as choice the provider no longer verifies is cleared by the same call. Gmail only. Retry-safe without an Idempotency-Key: it stores exactly what the provider currently reports.",
+        "tags": [
+          "mailboxes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The mailbox id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MailboxSendIdentityRefreshRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The refreshed sending identity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailboxSendIdentity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id, a provider with no send-as list (mailbox_send_as_unsupported), or a signature larger than Warmbly stores (mailbox_signature_too_large).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope, permission, or mailbox not allowed for this key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Mailbox not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/emails/verify": {
       "post": {
         "operationId": "mailboxes_verify_address",
@@ -20758,6 +20946,10 @@
           "signature_code": {
             "type": "boolean"
           },
+          "send_as_email": {
+            "type": "string",
+            "description": "A verified provider alias this mailbox sends from. Empty, the default, means the mailbox's own address. Gmail only."
+          },
           "provider": {
             "type": "string",
             "enum": [
@@ -20929,6 +21121,10 @@
           "signature_code": {
             "type": "boolean",
             "description": "Treat the HTML signature as raw code."
+          },
+          "send_as_email": {
+            "type": "string",
+            "description": "A verified provider alias this mailbox sends from. Must be an address the provider reported as verified (see the sending identity endpoints) or the mailbox's own; anything else is refused with mailbox_send_as_unknown. Send an empty string to go back to the mailbox address. Gmail only."
           },
           "status": {
             "type": "string",
@@ -31209,6 +31405,86 @@
             "type": "string",
             "maxLength": 200,
             "description": "Optional note shown next to the hold."
+          }
+        }
+      },
+      "MailboxSendAsIdentity": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "description": "The mailbox's own address."
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "The identity the provider composes from by default. Reported, not followed: which alias Warmbly sends from is the workspace's own choice."
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "The provider finished verifying the address. An unverified one is listed but cannot be selected."
+          }
+        }
+      },
+      "MailboxSendIdentity": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean",
+            "description": "False for Outlook and SMTP/IMAP mailboxes, which publish no send-as list."
+          },
+          "provider": {
+            "type": "string"
+          },
+          "mailbox_email": {
+            "type": "string",
+            "format": "email",
+            "description": "The address the mailbox authenticates as, which is always a legal sender."
+          },
+          "send_as_email": {
+            "type": "string",
+            "description": "The alias in use. Empty means the mailbox address."
+          },
+          "identities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailboxSendAsIdentity"
+            }
+          },
+          "synced_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the list was last read from the provider."
+          },
+          "signature_source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "provider"
+            ],
+            "description": "Where the mailbox's stored signature came from."
+          },
+          "signature_imported_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MailboxSendIdentityRefreshRequest": {
+        "type": "object",
+        "properties": {
+          "import_signature": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also replace the mailbox's stored signature with the one configured at the provider, for whichever identity the mailbox sends as. An empty signature at the provider changes nothing."
           }
         }
       }
