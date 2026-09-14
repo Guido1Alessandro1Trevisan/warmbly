@@ -4804,6 +4804,287 @@
         }
       }
     },
+    "/campaigns/{id}/leads/{contactId}/hold": {
+      "get": {
+        "operationId": "campaigns_get_lead_hold",
+        "summary": "Get a lead's hold",
+        "description": "Read whether one contact's flow inside this campaign is currently held. Scope READ_CAMPAIGNS, org permission view_campaigns.",
+        "tags": [
+          "campaigns"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignLeadHoldResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The campaign is not the caller's organization's, or the contact is not a lead of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/campaigns/{id}/leads/{contactId}/pause": {
+      "post": {
+        "operationId": "campaigns_pause_lead",
+        "summary": "Pause a lead",
+        "description": "Hold one contact's flow inside one campaign until a date, or with no end. The contact stays subscribed and stays a lead. The body states an absolute hold rather than a delta, so a retry lands on the same state. Scope WRITE_CAMPAIGNS, org permission manage_campaigns.",
+        "tags": [
+          "campaigns"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignLeadPauseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignLeadHoldResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "until is in the past, or more than a year away.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The campaign is not the caller's organization's, or the contact is not a lead of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/campaigns/{id}/leads/{contactId}/resume": {
+      "post": {
+        "operationId": "campaigns_resume_lead",
+        "summary": "Resume a lead",
+        "description": "Lift the hold now. The held time is dropped rather than carried, and the campaign's wakeup is pulled forward. Resuming a lead that is not held succeeds and changes nothing. Scope WRITE_CAMPAIGNS, org permission manage_campaigns.",
+        "tags": [
+          "campaigns"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignLeadHoldResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The campaign is not the caller's organization's, or the contact is not a lead of it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/campaigns/{id}/logs": {
       "get": {
         "operationId": "campaigns_list_logs",
@@ -22804,9 +23085,11 @@
               "replied",
               "bounced",
               "failed",
-              "unsubscribed"
+              "unsubscribed",
+              "paused",
+              "undeliverable"
             ],
-            "description": "Derived, highest priority first: unsubscribed, bounced, replied, failed (a step could not be sent after every retry), completed (every email step sent), active (some steps sent), pending (nothing sent yet)."
+            "description": "The lead's derived state in this campaign, highest priority first: unsubscribed, bounced, replied, failed, completed, paused (the flow is held by an out-of-office auto-reply or by hand; see the hold object), active, undeliverable (address verification refused the address, so the campaign never sends to it), pending."
           },
           "sent": {
             "type": "integer"
@@ -22837,6 +23120,15 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "hold": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CampaignLeadHold"
+              }
+            ],
+            "nullable": true,
+            "description": "The live per-lead hold: an out-of-office auto-reply parked the contact, or a member paused them. Absent when the lead is not held."
           }
         }
       },
@@ -30842,6 +31134,81 @@
           },
           "position": {
             "type": "integer"
+          }
+        }
+      },
+      "CampaignLeadHold": {
+        "type": "object",
+        "description": "One contact's flow parked inside one campaign.",
+        "properties": {
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the hold was written."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When it lifts. Absent for a hold with no end, which only a resume lifts."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Free-text note shown next to the hold."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "out_of_office"
+            ],
+            "description": "What wrote it."
+          }
+        },
+        "required": [
+          "since",
+          "source"
+        ]
+      },
+      "CampaignLeadHoldResult": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contact_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hold": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CampaignLeadHold"
+              }
+            ],
+            "nullable": true,
+            "description": "Absent when the lead is not held, including a dated hold that has expired."
+          }
+        },
+        "required": [
+          "campaign_id",
+          "contact_id"
+        ]
+      },
+      "CampaignLeadPauseRequest": {
+        "type": "object",
+        "properties": {
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the hold lifts. Must be in the future and within a year. Omit or null for a hold with no end."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Optional note shown next to the hold."
           }
         }
       }
