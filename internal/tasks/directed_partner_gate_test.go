@@ -29,6 +29,17 @@ func (directedEmailRepo) GetByID(_ context.Context, id uuid.UUID) (*models.Email
 	return &models.Email{ID: id}, nil
 }
 
+// addressedEmailRepo answers with a real address, which the routing rules read.
+type addressedEmailRepo struct {
+	repository.EmailRepository
+
+	email string
+}
+
+func (r addressedEmailRepo) GetByID(_ context.Context, id uuid.UUID) (*models.Email, *errx.Error) {
+	return &models.Email{ID: id, Email: r.email}, nil
+}
+
 // pinnedGate answers the pool-pinned gate the way the real one does: a row is
 // only found in the pool it is in.
 type pinnedGate struct {

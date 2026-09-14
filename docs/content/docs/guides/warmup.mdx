@@ -54,7 +54,9 @@ Within a pool, partners are picked by weight rather than at random. Three things
 
 - **Domain spread.** Recipient domains you have already used a lot recently are downweighted, so warmup does not loop through the same handful of inboxes.
 - **Where you are landing.** Warmbly tracks your spam-placement rate separately for each recipient provider over the last seven days, grouped by who actually runs that recipient's mail (Google, Microsoft, Yahoo and so on, the same grouping routing rules use). A mailbox landing in spam at Microsoft but not Google is sent fewer Microsoft partners until that rate falls, without waiting for an overall health band to trip.
-- **Your routing rules**, when you have configured any.
+- **Your routing rules**, when you have configured any. A rule's weight multiplies a partner's chance; a weight of `0` is not a weight but an exclusion, so that pairing never happens.
+
+An exclusion is honoured even when it leaves nothing: if every available partner is excluded by your rules, the mailbox sends no warmup mail that tick and tries again later, rather than mailing someone you ruled out because the pool had nobody else. The same holds when a partner writes first: your mailbox does not reply to an address your rules exclude. Rules apply to paid-tier mailboxes.
 
 A struggling provider is downweighted, never excluded: a sender that stops mailing a provider entirely can never discover that it recovered there. A provider is only judged once you have sent it at least five warmup emails in the window, so one bad delivery out of two is treated as noise rather than a pattern. You can see the per-domain numbers this reads under **Deliverability > Warmup placement by domain**.
 

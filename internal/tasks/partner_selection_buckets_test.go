@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -65,14 +66,43 @@ func (g *rejectingGate) CanParticipate(_ context.Context, id uuid.UUID, poolType
 	return true, "", nil
 }
 
+// ruleRepo serves one organization's routing rules; the rest of the interface panics.
+type ruleRepo struct {
+	repository.WarmupRoutingRepository
+
+	rules []models.WarmupRoutingRule
+}
+
+func (r ruleRepo) ListForOrganization(context.Context, uuid.UUID) ([]models.WarmupRoutingRule, error) {
+	return r.rules, nil
+}
+
 func premiumSelector(gate *rejectingGate, cands ...models.WarmupPartnerCandidate) (*tasksService, Email) {
+	return premiumSelectorWithRules(gate, nil, cands...)
+}
+
+func premiumSelectorWithRules(gate *rejectingGate, rules []models.WarmupRoutingRule, cands ...models.WarmupPartnerCandidate) (*tasksService, Email) {
 	org := uuid.New()
 	s := &tasksService{
-		warmupRepo:   candidateRepo{candidates: cands},
-		emailRepo:    directedEmailRepo{},
-		warmupHealth: gate,
+		warmupRepo:        candidateRepo{candidates: cands},
+		emailRepo:         directedEmailRepo{},
+		warmupHealth:      gate,
+		warmupRoutingRepo: ruleRepo{rules: rules},
 	}
 	return s, Email{ID: uuid.New(), Email: "sender@paid.test", OrganizationID: &org, WarmupPoolType: "premium"}
+}
+
+// excludeDomain is the customer saying "never warm with this domain".
+func excludeDomain(domain string) []models.WarmupRoutingRule {
+	return []models.WarmupRoutingRule{{
+		Enabled:             true,
+		Name:                "exclude " + domain,
+		Priority:            1,
+		SenderMatchType:     models.WarmupMatchAny,
+		RecipientMatchType:  models.WarmupMatchDomain,
+		RecipientMatchValue: domain,
+		Weight:              0,
+	}}
 }
 
 func TestSelectWarmupPartnerDrawsOwnTierBeforeBorrowed(t *testing.T) {
@@ -151,5 +181,92 @@ func TestSelectWarmupPartnerDrawEndsByExhaustion(t *testing.T) {
 	}
 	if partner.ID != free.ID {
 		t.Fatalf("drew %s, want the borrowed partner %s", partner.ID, free.ID)
+	}
+}
+
+// A weight of 0 is an exclusion, not a weight, so it has to survive a pool of
+// one: weighting cannot express "never" when there is nothing to weigh against (#501).
+func TestSelectWarmupPartnerHonoursAnExclusionAgainstTheOnlyCandidate(t *testing.T) {
+	only := models.WarmupPartnerCandidate{ID: uuid.New(), Email: "one@blocked.test"}
+	gate := &rejectingGate{poolOf: map[uuid.UUID]string{only.ID: "premium"}}
+	s, sender := premiumSelectorWithRules(gate, excludeDomain("blocked.test"), only)
+
+	partner, err := s.selectWarmupPartner(context.Background(), sender)
+	if !errors.Is(err, errAllPartnersExcluded) {
+		t.Fatalf("got (%v, %v), want errAllPartnersExcluded", partner, err)
+	}
+	if len(gate.asked) != 0 {
+		t.Fatalf("an excluded candidate reached the health gate: %v", gate.asked)
+	}
+}
+
+func TestSelectWarmupPartnerHonoursAnExclusionAgainstEveryCandidate(t *testing.T) {
+	var cands []models.WarmupPartnerCandidate
+	gate := &rejectingGate{poolOf: map[uuid.UUID]string{}}
+	for i := 0; i < 4; i++ {
+		c := models.WarmupPartnerCandidate{ID: uuid.New(), Email: "p@blocked.test"}
+		gate.poolOf[c.ID] = "premium"
+		cands = append(cands, c)
+	}
+	s, sender := premiumSelectorWithRules(gate, excludeDomain("blocked.test"), cands...)
+
+	if partner, err := s.selectWarmupPartner(context.Background(), sender); !errors.Is(err, errAllPartnersExcluded) {
+		t.Fatalf("got (%v, %v), want errAllPartnersExcluded", partner, err)
+	}
+}
+
+// An exclusion removes only what it names; the rest of the pool still warms.
+func TestSelectWarmupPartnerDrawsTheCandidatesAnExclusionLeaves(t *testing.T) {
+	blocked := models.WarmupPartnerCandidate{ID: uuid.New(), Email: "no@blocked.test"}
+	allowed := models.WarmupPartnerCandidate{ID: uuid.New(), Email: "yes@allowed.test"}
+	gate := &rejectingGate{poolOf: map[uuid.UUID]string{blocked.ID: "premium", allowed.ID: "premium"}}
+	s, sender := premiumSelectorWithRules(gate, excludeDomain("blocked.test"), blocked, allowed)
+
+	for i := 0; i < 20; i++ {
+		partner, err := s.selectWarmupPartner(context.Background(), sender)
+		if err != nil {
+			t.Fatalf("pick %d: %v", i, err)
+		}
+		if partner.ID != allowed.ID {
+			t.Fatalf("pick %d drew the excluded partner %s", i, partner.ID)
+		}
+	}
+}
+
+// The reply-back path commits a pair too, so the exclusion holds there: the
+// thread exists only because the other side started it.
+func TestDirectedWarmupPartnerRefusesAnExcludedTarget(t *testing.T) {
+	target := uuid.New()
+	org := uuid.New()
+	gate := &pinnedGate{poolOf: map[uuid.UUID]string{target: "premium"}}
+	s := &tasksService{
+		taskRepo:          &directedTaskRepo{target: target},
+		emailRepo:         addressedEmailRepo{email: "them@blocked.test"},
+		warmupHealth:      gate,
+		orgRiskRepo:       riskRepo{state: models.OrgRiskTrusted},
+		warmupRoutingRepo: ruleRepo{rules: excludeDomain("blocked.test")},
+	}
+	sender := &Email{ID: uuid.New(), Email: "sender@paid.test", OrganizationID: &org, WarmupPoolType: "premium"}
+
+	if partner := s.directedWarmupPartner(context.Background(), uuid.New(), sender, "premium"); partner != nil {
+		t.Fatalf("replied to %s, which the customer excluded", partner.Email)
+	}
+}
+
+func TestDirectedWarmupPartnerAnswersAnAllowedTarget(t *testing.T) {
+	target := uuid.New()
+	org := uuid.New()
+	gate := &pinnedGate{poolOf: map[uuid.UUID]string{target: "premium"}}
+	s := &tasksService{
+		taskRepo:          &directedTaskRepo{target: target},
+		emailRepo:         addressedEmailRepo{email: "them@allowed.test"},
+		warmupHealth:      gate,
+		orgRiskRepo:       riskRepo{state: models.OrgRiskTrusted},
+		warmupRoutingRepo: ruleRepo{rules: excludeDomain("blocked.test")},
+	}
+	sender := &Email{ID: uuid.New(), Email: "sender@paid.test", OrganizationID: &org, WarmupPoolType: "premium"}
+
+	if partner := s.directedWarmupPartner(context.Background(), uuid.New(), sender, "premium"); partner == nil {
+		t.Fatal("refused a target no rule excludes")
 	}
 }

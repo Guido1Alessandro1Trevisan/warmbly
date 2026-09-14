@@ -376,7 +376,7 @@ Auth: **Scope** `WARMUP_ROUTING` · **Org permission** `manage_settings`
 | `sender_match_value` | string | Conditional | Required unless `sender_match_type` is `any`. Domain (`acme.com`), TLD (`com`), or provider bucket (`google`, `microsoft`, `yahoo`, `apple`, `proton`, `zoho`, `custom`). |
 | `recipient_match_type` | string | Yes | One of `any`, `domain`, `tld`, `provider`. |
 | `recipient_match_value` | string | Conditional | Required unless `recipient_match_type` is `any`. Same value forms as the sender side. |
-| `weight` | number | No | Selection weight, must be `>= 0`. |
+| `weight` | number | No | Selection weight, must be `>= 0`. Above `1` prefers the pairing, below `1` avoids it, and exactly `0` excludes it: a matching pair is never chosen, even when nothing else is available, and is not replied to either. |
 | `enabled` | boolean | No | Whether the rule is active. |
 
 ```json

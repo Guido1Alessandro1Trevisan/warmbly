@@ -5,7 +5,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/warmbly/warmbly/internal/models"
 	"github.com/warmbly/warmbly/internal/repository"
 )
 
@@ -61,29 +60,15 @@ func TestPickWeightedPartner_RoutingRulePrefersProviderMatch(t *testing.T) {
 		googleRecipient:    "gmail.com",
 		microsoftRecipient: "outlook.com",
 	}
-	emailsByID := map[uuid.UUID]string{
-		googleRecipient:    "g@gmail.com",
-		microsoftRecipient: "m@outlook.com",
-	}
-	rules := []models.WarmupRoutingRule{
-		{
-			Enabled:             true,
-			Name:                "google-to-google",
-			Priority:            1,
-			SenderMatchType:     models.WarmupMatchProvider,
-			SenderMatchValue:    "google",
-			RecipientMatchType:  models.WarmupMatchProvider,
-			RecipientMatchValue: "google",
-			Weight:              10.0,
-		},
-	}
+	// The selector resolves each rule once, into the weight it produced.
+	ruleWeight := map[uuid.UUID]float64{googleRecipient: 10.0, microsoftRecipient: 1.0}
 
 	googleHits := 0
 	iterations := 2000
 	for i := 0; i < iterations; i++ {
 		picked := pickWeightedPartner(
 			[]uuid.UUID{googleRecipient, microsoftRecipient},
-			partnerSignals{domainsByID: domainsByID, rules: rules, senderEmail: "sender@gmail.com", emailsByID: emailsByID},
+			partnerSignals{domainsByID: domainsByID, ruleWeight: ruleWeight},
 		)
 		if picked == googleRecipient {
 			googleHits++
@@ -95,37 +80,26 @@ func TestPickWeightedPartner_RoutingRulePrefersProviderMatch(t *testing.T) {
 	}
 }
 
-func TestPickWeightedPartner_RoutingRuleZeroWeightExcludes(t *testing.T) {
-	allowedID := uuid.New()
-	blockedID := uuid.New()
-	domainsByID := map[uuid.UUID]string{
-		allowedID: "good.com",
-		blockedID: "blocked.com",
-	}
-	emailsByID := map[uuid.UUID]string{
-		allowedID: "a@good.com",
-		blockedID: "b@blocked.com",
-	}
-	rules := []models.WarmupRoutingRule{
-		{
-			Enabled:             true,
-			Name:                "exclude-blocked",
-			Priority:            1,
-			SenderMatchType:     models.WarmupMatchAny,
-			RecipientMatchType:  models.WarmupMatchDomain,
-			RecipientMatchValue: "blocked.com",
-			Weight:              0,
-		},
+// A candidate with no rule of its own weighs the same as one with no rules at
+// all; a bare map lookup would have zeroed it and excluded everybody.
+func TestPickWeightedPartner_MissingRuleWeightIsNeutral(t *testing.T) {
+	ruled := uuid.New()
+	unruled := uuid.New()
+	sig := partnerSignals{
+		domainsByID:  map[uuid.UUID]string{ruled: "a.com", unruled: "b.com"},
+		domainCounts: map[string]int{"a.com": 0, "b.com": 0},
+		ruleWeight:   map[uuid.UUID]float64{ruled: 1.0},
 	}
 
-	for i := 0; i < 500; i++ {
-		picked := pickWeightedPartner(
-			[]uuid.UUID{allowedID, blockedID},
-			partnerSignals{domainsByID: domainsByID, rules: rules, senderEmail: "sender@whatever.io", emailsByID: emailsByID},
-		)
-		if picked == blockedID {
-			t.Fatalf("weight=0 rule should exclude blocked partner")
+	unruledHits := 0
+	iterations := 2000
+	for i := 0; i < iterations; i++ {
+		if pickWeightedPartner([]uuid.UUID{ruled, unruled}, sig) == unruled {
+			unruledHits++
 		}
+	}
+	if unruledHits < iterations/4 {
+		t.Fatalf("the unruled partner was picked %d/%d times; equal weights should be near half", unruledHits, iterations)
 	}
 }
 

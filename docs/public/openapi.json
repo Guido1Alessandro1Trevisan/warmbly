@@ -29956,7 +29956,7 @@
           },
           "weight": {
             "type": "number",
-            "description": "Selection weight, >= 0."
+            "description": "Selection weight, >= 0. Exactly 0 excludes the pairing outright."
           },
           "enabled": {
             "type": "boolean"
@@ -30029,7 +30029,7 @@
           "weight": {
             "type": "number",
             "minimum": 0,
-            "description": "Selection weight, must be >= 0."
+            "description": "Selection weight, must be >= 0. Above 1 prefers the pairing, below 1 avoids it, and exactly 0 excludes it even when no other partner is available."
           },
           "enabled": {
             "type": "boolean",
