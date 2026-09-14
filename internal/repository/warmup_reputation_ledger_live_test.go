@@ -105,6 +105,7 @@ func (f *ledgerFixture) remove(t *testing.T, user, id uuid.UUID) {
 
 type standing struct {
 	score       float64
+	reason      string
 	state       string
 	until       *time.Time
 	blockedAt   *time.Time
@@ -115,8 +116,8 @@ func (f *ledgerFixture) standing(t *testing.T, id uuid.UUID) standing {
 	t.Helper()
 	var s standing
 	err := f.pool.QueryRow(context.Background(),
-		`SELECT last_health_score, health_state, blocked_until, blocked_at, health_signals_from FROM warmup_pool_participants WHERE email_account_id = $1`, id).
-		Scan(&s.score, &s.state, &s.until, &s.blockedAt, &s.signalsFrom)
+		`SELECT last_health_score, COALESCE(last_health_reason, ''), health_state, blocked_until, blocked_at, health_signals_from FROM warmup_pool_participants WHERE email_account_id = $1`, id).
+		Scan(&s.score, &s.reason, &s.state, &s.until, &s.blockedAt, &s.signalsFrom)
 	if err != nil {
 		t.Fatalf("read standing: %v", err)
 	}
@@ -485,5 +486,44 @@ func TestLiveReputationMirrorRecordsASentenceNotAScore(t *testing.T) {
 	f.penalise(t, id, 78, "quarantined", &until)
 	if m := f.mirrorRow(t); m == nil || m.state != "quarantined" || m.score != 78 {
 		t.Fatalf("mirror after the sentence = %+v, want quarantined at 78", m)
+	}
+}
+
+// A sentence keeps the reading that produced it. A blocked mailbox stops
+// warming, so the next sweep reads an empty sample, and overwriting the score
+// and reason left the block with no explanation anywhere the advisor or the
+// ledger could find one (#491).
+func TestLiveHealthFloorKeepsTheReadingThatProducedTheSentence(t *testing.T) {
+	f := newLedgerFixture(t)
+	ctx := context.Background()
+	id := f.addMailbox(t, f.user)
+	f.join(t, id)
+	until := time.Now().UTC().Add(30 * 24 * time.Hour)
+	reason := "warmup spam placement 44.0% exceeded block threshold"
+
+	if _, err := f.warmups.UpdateParticipantHealth(ctx, id, models.WarmupHealthBlocked, &until, reason, 44); err != nil {
+		t.Fatalf("block: %v", err)
+	}
+	// The mailbox is out of the pool, so the next sweep has nothing to count.
+	if _, err := f.warmups.UpdateParticipantHealth(ctx, id, models.WarmupHealthHealthy, nil, "", 0); err != nil {
+		t.Fatalf("clean reading: %v", err)
+	}
+
+	got := f.standing(t, id)
+	if got.state != "blocked" || got.score != 44 || got.reason != reason {
+		t.Fatalf("the held block lost the reading that produced it: %+v", got)
+	}
+	if m := f.mirrorRow(t); m == nil || m.score != 44 {
+		t.Fatalf("the mirror lost it too: %+v", m)
+	}
+
+	// A reading that does apply still replaces both.
+	worse := "complaint rate 0.40%% exceeded block threshold"
+	later := until.Add(24 * time.Hour)
+	if _, err := f.warmups.UpdateParticipantHealth(ctx, id, models.WarmupHealthBlocked, &later, worse, 88); err != nil {
+		t.Fatalf("more severe reading: %v", err)
+	}
+	if got := f.standing(t, id); got.score != 88 || got.reason != worse {
+		t.Fatalf("a reading that applied did not replace the explanation: %+v", got)
 	}
 }

@@ -103,37 +103,37 @@ func profileFor(i int) mailboxProfile {
 	case i < 6:
 		return mailboxProfile{
 			warmupDaysAgo: 45 + i*3, warmupBase: 10, warmupInc: 1, warmupMax: 40 + (i%3)*5,
-			healthState: "healthy", healthScore: 93 + i%6,
+			healthState: "healthy", healthScore: i % 3,
 			campaignToday: 45 + (i*3)%11, accountAge: 60 + i*4,
 		}
 	case i < 14:
 		return mailboxProfile{
 			warmupDaysAgo: 5 + (i - 6) + (i % 3), warmupBase: 10, warmupInc: 2, warmupMax: 40,
-			healthState: "healthy", healthScore: 84 + (i*7)%12,
+			healthState: "healthy", healthScore: (i * 3) % 6,
 			campaignToday: 14 + (i*5)%17, accountAge: 25 + i,
 		}
 	case i < 17:
 		return mailboxProfile{
 			warmupDaysAgo: i - 13, warmupBase: 10, warmupInc: 2, warmupMax: 40,
-			healthState: "healthy", healthScore: 80 + (i*5)%9,
+			healthState: "healthy", healthScore: (i * 5) % 4,
 			campaignToday: 4 + i%5, accountAge: 4 + (i - 13),
 		}
 	case i == 17:
 		return mailboxProfile{
 			warmupDaysAgo: 12, warmupBase: 10, warmupInc: 2, warmupMax: 40,
-			healthState: "healthy", healthScore: 88,
+			healthState: "healthy", healthScore: 2,
 			campaignToday: 18, accountAge: 30,
 		}
 	case i == 18:
 		return mailboxProfile{
 			warmupDaysAgo: 9, warmupBase: 10, warmupInc: 2, warmupMax: 40,
-			healthState: "watch", healthScore: 62,
+			healthState: "watch", healthScore: 12,
 			campaignToday: 6, accountAge: 28,
 		}
 	default:
 		return mailboxProfile{
 			warmupDaysAgo: 50, warmupBase: 10, warmupInc: 1, warmupMax: 50,
-			healthState: "healthy", healthScore: 90,
+			healthState: "healthy", healthScore: 1,
 			campaignToday: 48, accountAge: 70,
 		}
 	}
@@ -470,8 +470,8 @@ func seedMailboxes(ctx context.Context, pool *pgxpool.Pool) error {
 			p.warmupBase, p.warmupInc, p.warmupMax, p.paused, p.accountAge); err != nil {
 			return fmt.Errorf("mailbox %s: %w", m.email, err)
 		}
-		// Pool membership with the cohort's evaluated health record, so the
-		// health column shows a believable spread instead of zeros.
+		// Pool membership with the cohort's evaluated health record. The score
+		// is a severity, as the bands write it: low is good.
 		if err := repository.NewWarmupRepository(pool).MoveToPool(ctx, models.WarmupPoolPremiumID, m.id, "sender_receiver"); err != nil {
 			return fmt.Errorf("pool join %s: %w", m.email, err)
 		}

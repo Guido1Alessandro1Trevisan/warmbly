@@ -167,9 +167,14 @@ type ColdRampInfo struct {
 }
 
 type WarmupHealthInfo struct {
-	State        string     `json:"state"` // healthy/watch/throttled/quarantined/blocked
-	Score        float64    `json:"score"`
-	Reason       string     `json:"reason,omitempty"`
+	State  string  `json:"state"` // healthy/watch/throttled/quarantined/blocked
+	Score  float64 `json:"score"`
+	Reason string  `json:"reason,omitempty"`
+	// SpamScore is always 0. The accumulating score it reported was retired in
+	// #491 because it tracked volume rather than misbehaviour; the key stays so
+	// a published v1 client does not break, and goes at the next API version.
+	// Read Score and Reason instead. Do not wire anything back into it.
+	SpamScore    int        `json:"spam_score"`
 	BlockedUntil *time.Time `json:"blocked_until,omitempty"`
 	EvaluatedAt  *time.Time `json:"evaluated_at,omitempty"`
 }

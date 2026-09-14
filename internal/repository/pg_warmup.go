@@ -568,10 +568,13 @@ func (r *warmupRepository) UpdateParticipantHealth(ctx context.Context, accountI
 	// decision from fresh metrics must not lower a quarantine or a block while
 	// its blocked_until is in the future; a decision at least as severe applies,
 	// and one of equal severity keeps the later end so a 90-day term is not cut
-	// to 30 by a milder reading. Throttled is not floored: the docs promise it
-	// lifts on recovery. Deciding it here, against the row as it is at write
-	// time, is what keeps an admin unblock that lands mid-sweep from being
-	// overwritten by the block the sweep read a moment earlier.
+	// to 30 by a milder reading. A held sentence also keeps the reading that
+	// produced it: a blocked mailbox stops warming, so the next sweep sees an
+	// empty sample, and overwriting the score and reason left the only
+	// explanation of the block blank. Throttled is not floored: the docs
+	// promise it lifts on recovery. Deciding it here, against the row as it is
+	// at write time, is what keeps an admin unblock that lands mid-sweep from
+	// being overwritten by the block the sweep read a moment earlier.
 	query := `
 		WITH cur AS (
 			SELECT email_account_id, health_state, blocked_until,
@@ -611,8 +614,8 @@ func (r *warmupRepository) UpdateParticipantHealth(ctx context.Context, accountI
 				WHEN eff.state = 'healthy' THEN NULL
 				ELSE COALESCE($3::text, p.blocked_reason)
 			END,
-			last_health_score = $4::double precision,
-			last_health_reason = NULLIF($3::text, ''),
+			last_health_score = CASE WHEN eff.held THEN p.last_health_score ELSE $4::double precision END,
+			last_health_reason = CASE WHEN eff.held THEN p.last_health_reason ELSE NULLIF($3::text, '') END,
 			last_health_evaluated_at = NOW()
 		FROM eff
 		WHERE p.email_account_id = eff.email_account_id
