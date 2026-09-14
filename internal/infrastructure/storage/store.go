@@ -69,6 +69,21 @@ type Store interface {
 	// Delete removes the object. Deleting a missing key is not an error.
 	Delete(ctx context.Context, key string) error
 
+	// DeletePrefix removes every object whose key starts with prefix and
+	// returns how many went. Deleting a prefix with nothing under it is not an
+	// error. Implementations that cannot enumerate (the node-side brokered
+	// store) return ErrUnsupported, the same contract as PresignedGetURL.
+	//
+	// This exists because erasing a mailbox has to erase the message bodies it
+	// synced, and there can be thousands of them under one prefix. Deleting
+	// them one key at a time would mean a list the caller does not have.
+	//
+	// Every implementation must refuse a prefix that does not end in "/" and
+	// one with fewer than MinPrefixSegments segments. An empty or shallow
+	// prefix is never a real caller and is always a request to empty the
+	// bucket.
+	DeletePrefix(ctx context.Context, prefix string) (int, error)
+
 	// Has reports whether the key has an object. (Not named Exists because the
 	// legacy S3 Client.Exists already takes a bucket argument.)
 	Has(ctx context.Context, key string) (bool, error)

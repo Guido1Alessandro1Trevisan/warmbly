@@ -33,7 +33,10 @@ func (fakeStore) Put(context.Context, string, io.Reader, string) error {
 func (fakeStore) PutPublic(context.Context, string, io.Reader, string) (string, error) {
 	return "", nil
 }
-func (fakeStore) Delete(context.Context, string) error      { return nil }
+func (fakeStore) Delete(context.Context, string) error { return nil }
+func (fakeStore) DeletePrefix(context.Context, string) (int, error) {
+	return 0, storage.ErrUnsupported
+}
 func (fakeStore) Has(context.Context, string) (bool, error) { return false, nil }
 func (fakeStore) Name() string                              { return "fake" }
 func (fakeStore) PresignedGetURL(context.Context, string, time.Duration) (string, error) {

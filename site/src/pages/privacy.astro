@@ -6,22 +6,23 @@ const sections = [
   { id: 'scope',        num: '02', title: 'Scope of this policy' },
   { id: 'data',         num: '03', title: 'Data we collect' },
   { id: 'use',          num: '04', title: 'How we use your data' },
-  { id: 'legal-basis',  num: '05', title: 'Legal bases' },
-  { id: 'encryption',   num: '06', title: 'Encryption and storage' },
-  { id: 'sharing',      num: '07', title: 'Sharing with third parties' },
-  { id: 'retention',    num: '08', title: 'Data retention' },
-  { id: 'rights',       num: '09', title: 'Your rights' },
-  { id: 'transfers',    num: '10', title: 'International transfers' },
-  { id: 'children',     num: '11', title: 'Children' },
-  { id: 'changes',      num: '12', title: 'Changes to this policy' },
-  { id: 'contact',      num: '13', title: 'Contact' },
+  { id: 'google-data',  num: '05', title: 'Google and Microsoft mailbox data' },
+  { id: 'legal-basis',  num: '06', title: 'Legal bases' },
+  { id: 'encryption',   num: '07', title: 'Encryption and storage' },
+  { id: 'sharing',      num: '08', title: 'Sharing with third parties' },
+  { id: 'retention',    num: '09', title: 'Data retention' },
+  { id: 'rights',       num: '10', title: 'Your rights' },
+  { id: 'transfers',    num: '11', title: 'International transfers' },
+  { id: 'children',     num: '12', title: 'Children' },
+  { id: 'changes',      num: '13', title: 'Changes to this policy' },
+  { id: 'contact',      num: '14', title: 'Contact' },
 ];
 ---
 <Legal
   title="Privacy Policy | Warmbly"
   description="How Warmbly collects, uses, stores, and protects your personal data and mailbox information. Read our full privacy policy and the choices you have."
   effective="2026-05-27"
-  updated="2026-05-27"
+  updated="2026-09-14"
   sections={sections}
 >
 
@@ -99,8 +100,36 @@ const sections = [
   </ul>
 </section>
 
+<section id="google-data" class="scroll-mt-24">
+  <h2>05. Google and Microsoft mailbox data</h2>
+  <p>
+    Connecting a Gmail or Microsoft 365 mailbox grants Warmbly access to that mailbox through the provider's API. What we do with what we read from it is deliberately narrow, and this section is the whole of it.
+  </p>
+  <h3>Limited use</h3>
+  <p>
+    Warmbly's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer" target="_blank">Google API Services User Data Policy</a>, including its Limited Use requirements. In practice that means:
+  </p>
+  <ul>
+    <li>We use Gmail data only to provide the features you connected the mailbox for: sending your campaign and warmup mail, syncing your inbox so replies appear in Warmbly, and detecting replies, bounces, and unsubscribes.</li>
+    <li>We do not transfer Gmail data to anyone except as necessary to provide those features, to comply with applicable law, or as part of a merger or acquisition after obtaining your consent.</li>
+    <li>We do not use Gmail data for advertising, and we do not sell it.</li>
+    <li>We do not allow humans to read your mail, except where you have given explicit consent for specific messages (for example when you ask us to investigate a problem), where it is necessary for security purposes such as investigating abuse, to comply with applicable law, or where the data is aggregated and anonymised.</li>
+    <li>We do not use your mail to train generalised artificial intelligence or machine learning models. Where you turn on an AI feature, the message in question is sent to the model provider only to produce the output you asked for.</li>
+  </ul>
+  <h3>Disconnecting a mailbox</h3>
+  <p>
+    You can disconnect a mailbox at any time from the Mailboxes screen, and doing so deletes the data we derived from it. Deleting the workspace holding it does the same for every mailbox in it. When you disconnect a Gmail mailbox we also call Google's revocation endpoint with the token we held, which invalidates it and removes Warmbly from the third-party access list on your Google account, so you do not have to remove it yourself. Deleting our copy of a token alone would not do this.
+  </p>
+  <p>
+    Microsoft publishes no equivalent endpoint for removing a single application, so for an Outlook or Microsoft 365 mailbox we destroy the stored tokens, which stops Warmbly using them, and you remove the app itself under your <a href="https://myaccount.microsoft.com/privacy" rel="noopener noreferrer" target="_blank">Microsoft account privacy settings</a>.
+  </p>
+  <p>
+    Alongside the revocation, the mailbox's stored messages are deleted from our database and from object storage, together with its credentials, warmup history, and sync state. This normally completes within a minute of you disconnecting, and where a provider or storage service is temporarily unavailable it is retried until it completes. You can also revoke access directly at your provider, under <a href="https://myaccount.google.com/permissions" rel="noopener noreferrer" target="_blank">Google third-party access</a>; the mailbox then stops working in Warmbly and should be disconnected here as well so the stored data is removed.
+  </p>
+</section>
+
 <section id="legal-basis" class="scroll-mt-24">
-  <h2>05. Legal bases for processing</h2>
+  <h2>06. Legal bases for processing</h2>
   <ul>
     <li><strong>Contract.</strong> Processing necessary to deliver the Service you have signed up for.</li>
     <li><strong>Legitimate interest.</strong> Processing necessary to keep the platform secure, to prevent abuse, and to improve our product. This is the basis for the cookieless website measurement, the product analytics and session replay described above, and for recording how you found us when you create an account. You can object to processing based on legitimate interest; see your rights below.</li>
@@ -110,7 +139,7 @@ const sections = [
 </section>
 
 <section id="encryption" class="scroll-mt-24">
-  <h2>06. Encryption and storage</h2>
+  <h2>07. Encryption and storage</h2>
   <p>
     Sensitive credentials and message payloads are protected using envelope encryption. AWS Key Management Service is the root of trust. Each user gets a 32-byte data encryption key (DEK), generated by KMS. The encrypted DEK ciphertext is stored in PostgreSQL. The plaintext DEK is held only in memory, cached briefly in Redis with a short time-to-live, and used to encrypt and decrypt fields at the application layer with AES-256-GCM.
   </p>
@@ -120,7 +149,7 @@ const sections = [
 </section>
 
 <section id="sharing" class="scroll-mt-24">
-  <h2>07. Sharing with third parties</h2>
+  <h2>08. Sharing with third parties</h2>
   <p>
     We share personal data with infrastructure and operational providers that we depend on to run Warmbly. These include AWS for compute, storage, encryption, and queues, Cloudflare for edge security and bot protection, Stripe for billing, PostHog for the website measurement, product analytics, session replay and error reporting described above, and the email providers you connect to Warmbly.
   </p>
@@ -130,10 +159,10 @@ const sections = [
 </section>
 
 <section id="retention" class="scroll-mt-24">
-  <h2>08. Data retention</h2>
+  <h2>09. Data retention</h2>
   <ul>
     <li>Account data is retained while your account is active and for a reasonable period after closure to allow recovery and to comply with our legal obligations.</li>
-    <li>Mailbox credentials are deleted promptly when you disconnect a mailbox or close your account.</li>
+    <li>Mailbox credentials are deleted when you disconnect a mailbox, or when you delete the workspace holding it, and where the provider supports it the access grant is revoked with them. The mail we imported from that mailbox is deleted at the same time. See <a href="#google-data">Google and Microsoft mailbox data</a>.</li>
     <li>Message and tracking data are deleted on a defined schedule after account closure, except where retention is required by law.</li>
     <li>Suppression lists are retained for as long as needed to honour unsubscribe and complaint requests on your behalf.</li>
     <li>Billing records are retained for the period required by applicable accounting and tax law.</li>
@@ -141,7 +170,7 @@ const sections = [
 </section>
 
 <section id="rights" class="scroll-mt-24">
-  <h2>09. Your rights</h2>
+  <h2>10. Your rights</h2>
   <p>
     Subject to applicable law, you have the right to access, rectify, delete, restrict, port, and object to processing of your personal data. You also have the right to withdraw consent where consent is the basis for processing, and the right to lodge a complaint with a supervisory authority.
   </p>
@@ -151,28 +180,28 @@ const sections = [
 </section>
 
 <section id="transfers" class="scroll-mt-24">
-  <h2>10. International transfers</h2>
+  <h2>11. International transfers</h2>
   <p>
     Warmbly is operated from the United Kingdom and processes data through infrastructure providers that operate globally. Where personal data is transferred outside the UK or the European Economic Area, we rely on appropriate safeguards such as the UK International Data Transfer Agreement, the EU Standard Contractual Clauses, or adequacy decisions where they apply.
   </p>
 </section>
 
 <section id="children" class="scroll-mt-24">
-  <h2>11. Children</h2>
+  <h2>12. Children</h2>
   <p>
     Warmbly is a business tool and is not intended for use by children. We do not knowingly collect personal data from anyone under 16. If you believe a child has provided personal data to Warmbly, please contact us and we will remove it.
   </p>
 </section>
 
 <section id="changes" class="scroll-mt-24">
-  <h2>12. Changes to this policy</h2>
+  <h2>13. Changes to this policy</h2>
   <p>
     We may update this privacy policy from time to time. The "Last updated" date at the top of this page reflects the most recent change. If we make material changes, we will notify you by email or through the Service before they take effect.
   </p>
 </section>
 
 <section id="contact" class="scroll-mt-24">
-  <h2>13. Contact</h2>
+  <h2>14. Contact</h2>
   <p>
     For privacy questions, data subject requests, or any other matter arising under this policy, email <a href="mailto:team@warmbly.com">team@warmbly.com</a> or write to Mindroot Ltd, 71-75 Shelton Street, London, England, WC2H 9JQ.
   </p>

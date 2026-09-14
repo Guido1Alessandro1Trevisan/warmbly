@@ -225,9 +225,23 @@ Leads mid-sequence on that mailbox move to another one in their campaign as they
 
 It keeps its worker assignment while off, so switching it back on puts it back on the same machine, sending from the same IP, and it resumes syncing from where it stopped instead of re-importing.
 
-**Disconnecting** removes the mailbox for good, from the Accounts selection bar. The machine syncing it is told to drop it before the record is removed, because afterwards there is nothing left to tell. If that instruction cannot be delivered, the disconnect fails with a `503` and nothing is removed, so retry it in a moment rather than assuming it worked.
+**Disconnecting** removes the mailbox for good. It is on the mailbox's own **More** menu in the list, as **Disconnect mailbox**, and at the bottom of its **Settings** tab under Danger zone. To remove several at once, tick their rows and use the selection bar. The machine syncing it is told to drop it before the record is removed, because afterwards there is nothing left to tell. If that instruction cannot be delivered, the disconnect fails with a `503` and nothing is removed, so retry it in a moment rather than assuming it worked.
 
 Everything belonging to that mailbox goes with it: its imported mail in the unibox, its warmup history and pool membership, its credentials, its sender links, and any send still scheduled for it. A campaign that was using it keeps running on its remaining senders, and the leads it had been writing to move onto them at their next step. Export the workspace first if you want a copy. Disable the mailbox instead when you only want it to stop.
+
+### What disconnecting erases
+
+Disconnecting is a deletion, not a hiding. Two parts of it finish just after the mailbox disappears from your list, because neither can be done in the instant the record goes.
+
+**The connection to your provider is handed back.** For a Gmail mailbox, Warmbly calls Google's revocation endpoint with the refresh token it held, which invalidates that token and every access token issued from it, and removes Warmbly from the third-party access list on your Google account. You do not have to go and remove it yourself. Deleting our copy of a token would not have done this; the grant would have stayed on your account.
+
+Microsoft publishes no equivalent endpoint for a single application, so an Outlook or Microsoft 365 mailbox is different: the stored tokens are destroyed here and stop being usable by Warmbly, but removing the app from your account is done by you, under [Microsoft account privacy settings](https://myaccount.microsoft.com/privacy). The only Microsoft call that ends sessions signs you out of every application you use, which is not something to do because you disconnected one mailbox.
+
+**The message bodies are deleted.** Mail Warmbly imported is stored outside the database, and those files are removed too. The rows that index them go with the mailbox immediately; the files follow within about a minute.
+
+If either step cannot finish, because a provider is down or storage is briefly unreachable, it is retried until it does rather than being given up on. Nothing else is left: the thread labels and snooze timers on conversations that existed only in that mailbox go as well, and a conversation that also ran through a mailbox you kept keeps its labels.
+
+Closing the whole workspace does the same thing for every mailbox in it, for the same reasons.
 
 ## Worker assignment
 

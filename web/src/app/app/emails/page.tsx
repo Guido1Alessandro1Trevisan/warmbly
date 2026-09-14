@@ -11,6 +11,7 @@ import useAccountStatuses from "@/lib/api/hooks/app/analytics/useAccountStatuses
 import useFeatureStatus from "@/lib/api/hooks/app/subscription/useFeatureStatus";
 import warmupLifecycle from "@/lib/api/client/app/emails/warmupLifecycle";
 import removeEmail from "@/lib/api/client/app/emails/removeEmail";
+import useRemoveEmail from "@/lib/api/hooks/app/emails/useRemoveEmail";
 import { useUserProfile } from "@/hooks/context/user";
 import { useConfirm } from "@/hooks/context/confirm";
 import InboxDetails from "@/components/app/emails/InboxDetails";
@@ -159,13 +160,24 @@ export default function AddressesPage() {
     const removeSelected = () => {
         if (selected.length === 0 || removing) return;
         const n = selected.length;
+        // Say what it does, because none of it comes back. The revocation
+        // sentence is built from the providers actually selected: claiming
+        // "access is revoked at the provider" over a selection containing an
+        // Outlook mailbox would be untrue for that one, and Microsoft publishes
+        // no way for us to remove a single app.
+        const providers = new Set(
+            selected.map((id) => emailsData.emails?.find((e) => e.id === id)?.provider).filter(Boolean) as string[],
+        );
         confirm.show(
-            `Remove ${n} mailbox${n > 1 ? "es" : ""}? This disconnects ${n > 1 ? "them" : "it"} from Warmbly.`,
+            `Remove ${n} mailbox${n > 1 ? "es" : ""}? This deletes ${n > 1 ? "their" : "its"} imported mail and warmup history. ${bulkRevocationNote(providers)} It cannot be undone — switch ${n > 1 ? "them" : "it"} off instead to just stop sending.`,
             async () => {
                 setRemoving(true);
                 const results = await Promise.allSettled(selected.map((id) => removeEmail(id)));
                 const failed = results.filter((r) => r.status === "rejected");
+                // The ["emails"] prefix covers the lists and the allowance
+                // counter, which a disconnect gives slots back to.
                 await queryClient.invalidateQueries({ queryKey: ["emails"] });
+                await queryClient.invalidateQueries({ queryKey: ["analytics", "accounts"] });
                 setSelected([]);
                 setRemoving(false);
                 if (failed.length > 0) {
@@ -485,6 +497,33 @@ export default function AddressesPage() {
 
 /* ── one mailbox row + its warmup dropdown ───────────────────────────── */
 
+// revocationNote says what disconnecting does to the connection itself, which
+// is not the same question for every provider. Google accepts a revocation and
+// the app disappears from the customer's account; Microsoft publishes no
+// endpoint for removing a single application, so all we can truthfully claim
+// there is that our copy of the tokens is destroyed.
+function revocationNote(provider?: string): string {
+    if (provider === "gmail") return "Warmbly's access to the Google account is revoked.";
+    if (provider === "outlook")
+        return "The stored Microsoft tokens are destroyed; remove Warmbly itself from your Microsoft account privacy settings.";
+    return "The stored credentials are destroyed.";
+}
+
+// bulkRevocationNote is the same answer for a mixed selection, which must not
+// round up to the stronger claim.
+function bulkRevocationNote(providers: Set<string>): string {
+    const gmail = providers.has("gmail");
+    const outlook = providers.has("outlook");
+    if (providers.size === 1 && (gmail || outlook)) return revocationNote(gmail ? "gmail" : "outlook");
+    if (gmail && outlook)
+        return "Google access is revoked; the Microsoft tokens are destroyed here, and Warmbly is removed from a Microsoft account by you.";
+    if (outlook)
+        return "The stored credentials are destroyed; remove Warmbly itself from your Microsoft account privacy settings.";
+    if (gmail) return "The stored credentials are destroyed, and Google access is revoked.";
+    // No OAuth mailbox in the selection, so there is no grant to mention.
+    return "The stored credentials are destroyed.";
+}
+
 // removeErrorMessage pulls the API's own explanation out of a failed request.
 function removeErrorMessage(err: unknown): string | undefined {
     const e = err as { response?: { data?: { message?: string } } };
@@ -516,6 +555,25 @@ function MailboxRow({
 }) {
     const life = useWarmupLifecycle(box.id);
     const confirm = useConfirm();
+    const remove = useRemoveEmail(box.id);
+
+    // Disconnecting is unrecoverable and takes the mailbox's stored mail with
+    // it, so the prompt says that rather than "are you sure". What happens to
+    // the connection differs by provider and the copy has to differ with it:
+    // Google accepts a revocation, Microsoft publishes no way for us to remove
+    // one app, so promising it for Outlook would be a promise we cannot keep.
+    const askDisconnect = () =>
+        confirm.show(
+            `Disconnect ${box.email}? This deletes its imported mail, warmup history and credentials. ${revocationNote(box.provider)} It cannot be undone — switch the mailbox off instead to just stop sending.`,
+            async () => {
+                try {
+                    await remove.mutateAsync();
+                    toast.success(`${box.email} disconnected`);
+                } catch (e) {
+                    toast.error(removeErrorMessage(e) ?? "The mailbox couldn't be disconnected");
+                }
+            },
+        );
 
     // Resolve the row's tag ids against the user's tag registry; cap the chips
     // so long tag lists don't crowd the email out of the cell.
@@ -768,14 +826,32 @@ function MailboxRow({
                             </PopoverMenuItem>
                         </PopoverMenuContent>
                     </PopoverMenu>
-                    <button
-                        type="button"
-                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                        onClick={(e) => { e.stopPropagation(); onOpen(box.id, "settings"); }}
-                        aria-label="Mailbox settings"
-                    >
-                        <RiMoreLine className="w-3.5 h-3.5" />
-                    </button>
+                    <PopoverMenu align="end">
+                        <PopoverMenuTrigger asChild>
+                            <button
+                                type="button"
+                                className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                aria-label="Mailbox actions"
+                            >
+                                <RiMoreLine className="w-3.5 h-3.5" />
+                            </button>
+                        </PopoverMenuTrigger>
+                        <PopoverMenuContent minWidth={208}>
+                            {/* Health is a click on the row itself, which opens
+                                the overview, so it is not repeated here. */}
+                            <PopoverMenuItem onSelect={() => onOpen(box.id, "settings")} icon={<Settings2Icon className="w-3 h-3" />}>
+                                Mailbox settings
+                            </PopoverMenuItem>
+                            <PopoverMenuSeparator />
+                            {/* The one obvious way to remove a single mailbox. It
+                                used to exist only behind the row checkboxes and the
+                                selection bar, which nobody finds when they want to
+                                delete one thing. */}
+                            <PopoverMenuItem danger onSelect={askDisconnect} icon={<Trash2Icon className="w-3 h-3" />}>
+                                Disconnect mailbox
+                            </PopoverMenuItem>
+                        </PopoverMenuContent>
+                    </PopoverMenu>
                 </div>
             </td>
         </tr>

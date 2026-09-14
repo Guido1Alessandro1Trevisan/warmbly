@@ -308,3 +308,11 @@ func (s *BrokeredStore) PresignedURL(ctx context.Context, op PresignOp, key, con
 	}
 	return signed.URL, nil
 }
+
+// DeletePrefix is not available to a node. Erasure is a control-plane job, and
+// a signed URL authorises one key, so there is no shape of this the broker
+// could safely hand out: a node that could delete a prefix could empty the
+// bucket with one call.
+func (b *BrokeredStore) DeletePrefix(_ context.Context, _ string) (int, error) {
+	return 0, ErrUnsupported
+}

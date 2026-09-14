@@ -2020,7 +2020,7 @@
       "delete": {
         "operationId": "mailboxes_delete",
         "summary": "Delete a mailbox",
-        "description": "Disconnects and deletes a mailbox. It is removed from all warmup pools.",
+        "description": "Disconnects and deletes a mailbox. It is removed from all warmup pools, and everything belonging to it goes with it: imported mail, warmup history, credentials, sender links and any scheduled send.\n\nTwo parts of the erasure finish just after the response, because neither can be done in the instant the record goes. A Gmail mailbox's OAuth grant is handed back to Google, which invalidates its tokens and removes the app from the customer's third-party access list; Microsoft publishes no per-application revocation endpoint, so an Outlook mailbox's tokens are destroyed locally and the customer removes the app at their Microsoft account. The message bodies stored outside the database are deleted. Both are retried until they succeed.",
         "tags": [
           "mailboxes"
         ],

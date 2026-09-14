@@ -1340,6 +1340,21 @@ func (r *emailRepository) Delete(ctx context.Context, userID, emailAccountID str
 		return errx.InternalError()
 	}
 
+	// Before the row goes: what the mailbox leaves outside Postgres. The
+	// sealed refresh token lives in email_accounts_oauth, which cascades away
+	// with the mailbox, so reading it afterwards is impossible and the grant
+	// would stay live at the provider forever.
+	const scope = `a.user_id = $1 AND a.id = $2`
+	if _, err := EnqueueMailboxErasures(ctx, tx, scope, userID, emailAccountID); err != nil {
+		return errx.InternalError()
+	}
+
+	// The threads this mailbox holds messages in, read while they still exist.
+	threads, err := CollectMailboxThreadState(ctx, tx, scope, userID, emailAccountID)
+	if err != nil {
+		return errx.InternalError()
+	}
+
 	query := `
 		DELETE FROM email_accounts
 		WHERE user_id = $1 AND id = $2
@@ -1353,6 +1368,13 @@ func (r *emailRepository) Delete(ctx context.Context, userID, emailAccountID str
 			return errx.ErrNotFound
 		}
 		db.CaptureError(err, query, params, "queryrow")
+		return errx.InternalError()
+	}
+
+	// After the row goes: the labels and snoozes whose threads the cascade just
+	// emptied. Nothing references the mailbox from those rows, so without this
+	// the workspace keeps labels on threads with no messages left in them.
+	if err := DeleteOrphanedThreadState(ctx, tx, threads); err != nil {
 		return errx.InternalError()
 	}
 

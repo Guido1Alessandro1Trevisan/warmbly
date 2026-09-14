@@ -36,7 +36,7 @@ Two keys, and they are not interchangeable.
 
 | Key | Opens | Read by |
 |---|---|---|
-| `CREDENTIALS_ENCRYPTION_KEY` | Mailbox SMTP and IMAP credentials | Backend and workers, without an organization context |
+| `CREDENTIALS_ENCRYPTION_KEY` | Mailbox SMTP and IMAP credentials, and OAuth tokens | Backend and workers, without an organization context |
 | `KMS_LOCAL_MASTER_KEY` | The per-organization data keys, which in turn open everything else | Backend and consumer |
 
 Both are unrecoverable. A database backup without them restores an instance whose mailboxes authenticate against nothing, and there is no way back from that. They are in `.env`, and `install.sh` also writes them to `keys-backup.txt` next to the install, which is on the same disk as the database and therefore not a backup either. Copy them somewhere else.
@@ -93,6 +93,21 @@ The **minimal retention** preset in the admin panel and in the installer sets al
 ### Warmup standing by address
 
 Warmup keeps the standing of every penalised mailbox (score, state, and any block) against its address as well as its row, so removing the mailbox or dropping out of the pool and coming back does not start it clean. The copy is cleared as soon as the mailbox recovers, and once the mailbox is gone it is kept for 90 days after the block ends or after the removal, whichever is later; a block that requires review is kept until an operator lifts it. A mailbox in good standing has no such copy. The window is fixed rather than a setting, and the rows are purged by the same sweep.
+
+### Disconnecting a mailbox
+
+Disconnecting a mailbox, or deleting the workspace holding it, removes its rows from Postgres straight away through the database's own cascades. Two things cannot be done in that instant and are queued instead, then worked off within about a minute:
+
+| Owed | What happens |
+|---|---|
+| The OAuth grant | A Gmail mailbox's refresh token is sent to Google's revocation endpoint, which invalidates it and removes the instance from the customer's third-party access list. Microsoft publishes no per-application revocation endpoint, so an Outlook mailbox's tokens are destroyed locally and the customer removes the app themselves |
+| The message bodies | Everything the mailbox wrote under `users/<user>/emails/<mailbox>/` in the blob store is deleted, whether that is a filesystem path or an S3 bucket |
+
+While an erasure is outstanding its row holds a copy of the mailbox's OAuth refresh token, still sealed under `CREDENTIALS_ENCRYPTION_KEY`, because the row it was read from goes with the mailbox and the token is what the revocation sends. It is destroyed with the rest of the row when the erasure finishes.
+
+The queue is the `mailbox_erasures` table, and it holds only work still owed: a finished erasure is removed rather than kept, because the row names the address the customer asked to have forgotten. A failure is retried with a widening backoff, capped at six hours, and never abandoned, so an unreachable provider or store delays the erasure instead of losing it. Anything still outstanding after a day is reported by the `mailbox_erasure` job, visible under scheduled jobs in the admin panel.
+
+This runs on the control plane, which is the only place holding both the credential key and a credential for the blob store. A worker cannot do it: it signs one object at a time through the control plane and holds no bucket credential at all.
 
 ### Set them at install time
 

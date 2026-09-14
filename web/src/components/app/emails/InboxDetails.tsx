@@ -36,6 +36,7 @@ import {
     HourglassIcon,
     XCircleIcon,
     RefreshCwIcon,
+    TrashIcon,
     type LucideIcon,
 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -46,6 +47,7 @@ import type { AccountError } from "@/lib/api/models/app/analytics/AccountStatus"
 import useAccountStatus from "@/lib/api/hooks/app/analytics/useAccountStatus";
 import useWarmupAnalytics from "@/lib/api/hooks/app/analytics/useWarmupAnalytics";
 import useUpdateEmail from "@/lib/api/hooks/app/emails/useUpdateEmail";
+import useRemoveEmail from "@/lib/api/hooks/app/emails/useRemoveEmail";
 import useWarmupLifecycle from "@/lib/api/hooks/app/emails/useWarmupLifecycle";
 import useSendHold from "@/lib/api/hooks/app/emails/useSendHold";
 import useWarmupBanStatus from "@/lib/api/hooks/app/emails/useWarmupBanStatus";
@@ -461,7 +463,7 @@ function Detail({ mailbox, onClose, initialTab = "overview", canWarmup = true }:
                 {tab === "analytics" && <AnalyticsTab warmup={warmup.data} loading={warmup.isPending} />}
                 {tab === "warmup" && <WarmupTab form={form} update={update} status={status.data} mailbox={mailbox} canWarmup={canWarmup} />}
                 {tab === "sending" && <SendingBehaviorTab mailboxId={mailbox.id} />}
-                {tab === "settings" && <SettingsTab form={form} update={update} mailbox={mailbox} />}
+                {tab === "settings" && <SettingsTab form={form} update={update} mailbox={mailbox} onDisconnected={onClose} />}
             </div>
 
             {/* Save bar — only when something changed */}
@@ -1479,7 +1481,75 @@ function TrackingDomainCard({ mailbox }: { mailbox: Inbox }) {
 
 /* ── Settings (editable) ─────────────────────── */
 
-function SettingsTab({ form, update, mailbox }: { form: Inbox; update: (p: Partial<Inbox>) => void; mailbox: Inbox }) {
+/* ── disconnect ───────────────────────────────────────────────────── */
+
+/**
+ * The only per-mailbox delete in the product, at the bottom of the tab the
+ * row's "More" button opens.
+ *
+ * It was previously reachable only by ticking a row's checkbox in the list and
+ * finding the selection bar, which nobody looks for when they want to remove
+ * one mailbox. The action is destructive and unrecoverable, so it says what it
+ * takes before asking, and the copy differs by provider because what happens to
+ * the connection does: Google accepts a revocation and Microsoft does not.
+ */
+function DisconnectCard({ mailbox, onDisconnected }: { mailbox: Inbox; onDisconnected: () => void }) {
+    const confirm = useConfirm();
+    const remove = useRemoveEmail(mailbox.id);
+
+    const revocation =
+        mailbox.provider === "gmail"
+            ? "Warmbly's access to your Google account is revoked, so it disappears from your third-party access list."
+            : mailbox.provider === "outlook"
+              ? "The stored Microsoft tokens are destroyed. Microsoft has no way for us to remove the app itself, so do that in your Microsoft account privacy settings."
+              : "The stored SMTP and IMAP credentials are destroyed.";
+
+    const ask = () =>
+        confirm.show(
+            `Disconnect ${mailbox.email}? This deletes its imported mail, warmup history and credentials, and cannot be undone. Set the mailbox inactive instead if you only want it to stop sending.`,
+            async () => {
+                try {
+                    await remove.mutateAsync();
+                    toast.success(`${mailbox.email} disconnected`);
+                    // The drawer is showing a mailbox that no longer exists.
+                    onDisconnected();
+                } catch (e) {
+                    toast.error(buildError(e as AppError));
+                }
+            },
+        );
+
+    return (
+        <div className="px-5 py-5 space-y-3">
+            <Eyebrow>Danger zone</Eyebrow>
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 sm:items-center border-l-2 border-red-200 pl-3">
+                <div className="min-w-0 flex-1">
+                    <div className="text-[12.5px] font-medium text-red-700 leading-tight flex items-center gap-1.5">
+                        <TrashIcon className="w-3 h-3" />
+                        Disconnect this mailbox
+                    </div>
+                    <div className="text-[11.5px] text-red-700/70 leading-tight mt-0.5">
+                        Deletes its imported mail, warmup history, credentials and any scheduled send.
+                        {" "}
+                        {revocation}
+                        {" "}
+                        There is no recovery window, so export the workspace first if you want a copy.
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    onClick={ask}
+                    disabled={remove.isPending}
+                    className="self-start sm:ml-auto h-7 px-2.5 rounded-md border border-red-300 hover:border-red-400 text-red-700 hover:text-red-800 hover:bg-red-100/60 text-[12px] font-medium transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {remove.isPending ? "Disconnecting…" : "Disconnect…"}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function SettingsTab({ form, update, mailbox, onDisconnected }: { form: Inbox; update: (p: Partial<Inbox>) => void; mailbox: Inbox; onDisconnected: () => void }) {
     return (
         <div className="divide-y divide-slate-200/60">
             <div className="px-5 py-5 space-y-4">
@@ -1580,6 +1650,8 @@ function SettingsTab({ form, update, mailbox }: { form: Inbox; update: (p: Parti
             </div>
 
             <TrackingDomainCard mailbox={mailbox} />
+
+            <DisconnectCard mailbox={mailbox} onDisconnected={onDisconnected} />
 
             <div className="flex flex-wrap items-center gap-1.5 px-5 py-3 text-[11px] text-slate-400">
                 <SendIcon className="w-3 h-3" /> Changes apply to new sends. <ReplyIcon className="w-3 h-3 ml-1" /> Signature applies to replies too.

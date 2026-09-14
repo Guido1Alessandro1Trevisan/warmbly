@@ -409,6 +409,18 @@ func main() {
 			errs.CaptureFatal(err)
 			log.Fatal(err)
 		}
+		// The brokered store asks the control plane to sign each operation, so
+		// on the control plane it is asking itself. It also cannot enumerate,
+		// which would leave every mailbox erasure stuck with the customer's
+		// mail still in the bucket. Refused here rather than discovered later
+		// as a queue that never drains.
+		//
+		// The empty prefix is a safe probe: every real backend refuses it with
+		// ErrUnsafePrefix before touching anything, and only the brokered one
+		// answers ErrUnsupported.
+		if _, err := s3.DeletePrefix(ctx, ""); errors.Is(err, storage.ErrUnsupported) {
+			log.Fatal("BLOB_PROVIDER=brokered is for fleet nodes, not the backend: it cannot delete a prefix, so mailbox erasure could never complete. Set s3 or filesystem.")
+		}
 		s3ForHandler = s3
 
 		primaryDBEndpoint, err := cfg.LoadPrimaryDBEndpoint(ctx)
@@ -1654,6 +1666,17 @@ func main() {
 		dangerZoneJob := jobs.NewDangerZoneJob(dangerZoneService)
 		dangerZoneScheduler := jobs.NewDangerZoneScheduler(dangerZoneJob, 1*time.Hour)
 		go dangerZoneScheduler.Start(ctx)
+
+		// Finish deleting a mailbox: revoke its OAuth grant at Google, and
+		// remove the message bodies it synced from the blob store. Both
+		// outlive the transaction that deleted the rows, so both are queued by
+		// it and worked off here. A minute, because this is the "delete my
+		// data" path and the provider's clock is the one that matters.
+		go jobs.NewMailboxErasureJob(
+			repository.NewMailboxErasureRepository(primaryDB),
+			s3,
+			credEncrypter,
+		).Start(ctx, 1*time.Minute)
 
 		// Workspace archives: export a whole organization to a portable file
 		// and import one back, so a workspace can move between instances.

@@ -334,13 +334,58 @@ func (r *dangerZoneRepository) SetNotifBit(ctx context.Context, id uuid.UUID, bi
 }
 
 func (r *dangerZoneRepository) HardDeleteOrganization(ctx context.Context, orgID uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, orgID)
-	return err
+	return r.hardDelete(ctx,
+		`a.organization_id = $1`,
+		`DELETE FROM organizations WHERE id = $1`,
+		orgID)
 }
 
 func (r *dangerZoneRepository) HardDeleteUser(ctx context.Context, userID uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
-	return err
+	return r.hardDelete(ctx,
+		`a.user_id = $1`,
+		`DELETE FROM users WHERE id = $1`,
+		userID)
+}
+
+// hardDelete removes a workspace or a person and everything the cascades take
+// with them, having first written down the erasure that the cascades cannot do.
+//
+// Deleting the rows is not deleting the data. Every mailbox in scope has an
+// OAuth grant still live at its provider and message bodies still in object
+// storage, and both references disappear with the rows, so the enqueue has to
+// happen inside this transaction and before the delete. Without it, a customer
+// who closes their account leaves Warmbly connected to their Gmail.
+//
+// mailboxScope selects those mailboxes as a WHERE clause over email_accounts
+// aliased `a`; it is written here, never by a caller.
+func (r *dangerZoneRepository) hardDelete(ctx context.Context, mailboxScope, deleteStmt string, id uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := EnqueueMailboxErasures(ctx, tx, mailboxScope, id); err != nil {
+		return err
+	}
+
+	// The threads those mailboxes hold, read before the rows go. Deleting a
+	// workspace does not delete its members, so their labels and snoozes
+	// outlive the messages they were attached to; deleting a person takes both
+	// with them and this finds nothing to do.
+	threads, err := CollectMailboxThreadState(ctx, tx, mailboxScope, id)
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, deleteStmt, id); err != nil {
+		return err
+	}
+
+	if err := DeleteOrphanedThreadState(ctx, tx, threads); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // isUniqueViolation detects Postgres SQLSTATE 23505 (unique_violation).

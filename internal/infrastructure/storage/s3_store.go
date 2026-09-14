@@ -151,3 +151,53 @@ func (c *Client) PresignedURL(ctx context.Context, op PresignOp, key, contentTyp
 		return "", fmt.Errorf("storage: cannot presign unknown op %q", op)
 	}
 }
+
+// DeletePrefix removes every object under prefix, in pages, and reports how
+// many went. A mailbox's bodies are one object per message, so a busy mailbox
+// is thousands of keys; DeleteObjects takes a thousand at a time.
+//
+// Errors stop the walk rather than being collected: the caller retries the
+// whole prefix, and a partially-erased prefix that reported success would be
+// recorded as erased with bytes still in the bucket.
+func (c *Client) DeletePrefix(ctx context.Context, prefix string) (int, error) {
+	if err := CheckPrefix(prefix); err != nil {
+		return 0, err
+	}
+
+	deleted := 0
+	pager := s3.NewListObjectsV2Paginator(c.Client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(c.Bucket),
+		Prefix: aws.String(prefix),
+	})
+	for pager.HasMorePages() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return deleted, err
+		}
+		if len(page.Contents) == 0 {
+			continue
+		}
+		ids := make([]types.ObjectIdentifier, 0, len(page.Contents))
+		for _, obj := range page.Contents {
+			ids = append(ids, types.ObjectIdentifier{Key: obj.Key})
+		}
+		out, err := c.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(c.Bucket),
+			Delete: &types.Delete{Objects: ids, Quiet: aws.Bool(true)},
+		})
+		if err != nil {
+			return deleted, err
+		}
+		// A 200 carrying per-key errors is the shape S3 uses for a partial
+		// failure; without this the caller is told the prefix is clean while
+		// some of the customer's mail is still in the bucket.
+		if len(out.Errors) > 0 {
+			first := out.Errors[0]
+			return deleted, fmt.Errorf("storage: %d of %d objects under %q could not be deleted: %s",
+				len(out.Errors), len(ids), prefix, aws.ToString(first.Message))
+		}
+		// Quiet mode returns only failures, and there were none.
+		deleted += len(ids)
+	}
+	return deleted, nil
+}

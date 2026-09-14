@@ -545,10 +545,21 @@ dashboard warns, and it should.`,
 				Success: "Mailbox updated.",
 			},
 			{
-				Name: "remove", Aliases: []string{"rm", "delete"}, Short: "Disconnect a mailbox",
+				Name: "remove", Aliases: []string{"rm", "delete"}, Short: "Disconnect a mailbox and erase its data",
 				Method: http.MethodDelete, Path: "/emails/{id}",
-				Args:    []argSpec{{Name: "id", Help: "The mailbox's id"}},
-				Success: "Mailbox disconnected.",
+				Args: []argSpec{{Name: "id", Help: "The mailbox's id"}},
+				Long: `Disconnect a mailbox and delete everything derived from it.
+
+This is not reversible. The mailbox's imported mail, warmup history,
+credentials and scheduled sends go with it, the stored message bodies are
+deleted from object storage, and for a Gmail mailbox the OAuth grant is handed
+back to Google so Warmbly disappears from the account's third-party access
+list. Microsoft publishes no such endpoint, so an Outlook mailbox's tokens are
+destroyed here and the app is removed by the account owner.
+
+To stop a mailbox sending without losing anything, set it inactive instead:
+` + "`warmbly mailbox edit MAILBOX_ID --input '{\"status\":\"inactive\"}'`" + `.`,
+				Success: "Mailbox disconnected. Its stored mail is being erased and its stored credentials destroyed; a Gmail mailbox's access is also revoked with Google.",
 			},
 			{
 				Name: "check", Aliases: []string{"auth-check"}, Short: "Show the mailbox's SPF, DKIM and DMARC",
