@@ -88,7 +88,8 @@ type service struct {
 	providers ProviderSource
 	// platform is the instance-wide paid client an operator configured for
 	// workspaces that bring no key of their own; nil when unset.
-	platform     *emailverify.MillionVerifier
+	platform     *Provider
+	strict       bool
 	builtinReady bool
 
 	wake chan struct{}
@@ -134,6 +135,10 @@ type Options struct {
 	// PlatformMillionVerifierKey is the operator's own key, used for every
 	// workspace without a key of its own. Optional.
 	PlatformMillionVerifierKey string
+	// PlatformBouncerKey is the operator's instance-wide Bouncer key.
+	PlatformBouncerKey string
+	// Strict refuses built-in fallback when the paid provider is unavailable.
+	Strict bool
 }
 
 // NewService wires the verification service.
@@ -147,9 +152,12 @@ func NewService(repo repository.ContactRepository, opts Options) Service {
 		breakers:     map[uuid.UUID]*breaker{},
 		credits:      map[string]creditsEntry{},
 		healthLocks:  map[string]*sync.Mutex{},
+		strict:       opts.Strict,
 	}
-	if k := strings.TrimSpace(opts.PlatformMillionVerifierKey); k != "" {
-		s.platform = emailverify.NewMillionVerifier(k, "")
+	if k := strings.TrimSpace(opts.PlatformBouncerKey); k != "" {
+		s.platform = &Provider{Name: emailverify.ProviderBouncer, Label: "Bouncer", Client: emailverify.NewBouncer(k, "")}
+	} else if k := strings.TrimSpace(opts.PlatformMillionVerifierKey); k != "" {
+		s.platform = &Provider{Name: emailverify.ProviderMillionVerifier, Label: "MillionVerifier", Client: emailverify.NewMillionVerifier(k, "")}
 	}
 	return s
 }
@@ -185,6 +193,9 @@ func (s *service) breakerFor(orgID uuid.UUID) *breaker {
 // providerFor resolves the org's paid provider: its own connection first,
 // then the operator's instance-wide key.
 func (s *service) providerFor(ctx context.Context, orgID uuid.UUID) *Provider {
+	if s.strict && s.platform != nil {
+		return s.platform
+	}
 	if s.providers != nil {
 		p, err := s.providers.VerificationProviderFor(ctx, orgID)
 		if err != nil {
@@ -194,7 +205,7 @@ func (s *service) providerFor(ctx context.Context, orgID uuid.UUID) *Provider {
 		}
 	}
 	if s.platform != nil {
-		return &Provider{Name: emailverify.ProviderMillionVerifier, Label: "MillionVerifier", Client: s.platform}
+		return s.platform
 	}
 	return nil
 }
@@ -208,6 +219,9 @@ func (s *service) VerifyAddress(ctx context.Context, orgID uuid.UUID, email stri
 			return res
 		}
 		s.noteProviderError(ctx, p, err)
+		if s.strict {
+			return res
+		}
 	}
 	return s.verifyBuiltin(ctx, orgID, email)
 }
@@ -381,17 +395,32 @@ func (s *service) verifyOrgBatch(ctx context.Context, orgID uuid.UUID, cands []r
 	workers := config.VerificationProbeConcurrency
 	if p := s.providerFor(ctx, orgID); p != nil {
 		if _, err := s.providerUsable(ctx, p); err != nil {
-			log.Warn().Err(err).Str("organization_id", orgID.String()).Msg("verification: paid provider unusable; using built-in check")
+			message := "verification: paid provider unusable; using built-in check"
+			if s.strict {
+				message = "verification: paid provider unusable; strict mode is holding recipients"
+			}
+			log.Warn().Err(err).Str("organization_id", orgID.String()).Msg(message)
+			if s.strict {
+				verify = func(context.Context, string) emailverify.Result {
+					return emailverify.Result{Status: emailverify.StatusUnknown, Provider: p.Name, CheckedAt: time.Now().UTC(), Reason: p.Label + " verification unavailable"}
+				}
+			}
 		} else {
 			workers = config.VerificationProviderConcurrency
 			verify = func(ctx context.Context, email string) emailverify.Result {
 				if s.providerDown(p) {
+					if s.strict {
+						return emailverify.Result{Email: email, Status: emailverify.StatusUnknown, Provider: p.Name, CheckedAt: time.Now().UTC(), Reason: p.Label + " verification unavailable"}
+					}
 					return s.verifyBuiltin(ctx, orgID, email)
 				}
 				startedAt := time.Now()
 				res, err := p.Client.Check(ctx, email)
 				if err != nil {
 					s.noteProviderError(ctx, p, err)
+					if s.strict {
+						return res
+					}
 					// Fall back for this address so the pass still makes progress.
 					return s.verifyBuiltin(ctx, orgID, email)
 				}

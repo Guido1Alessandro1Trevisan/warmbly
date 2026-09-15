@@ -363,6 +363,8 @@ services:
       BOX_OUTLOOK_CLIENT_ID: ${BOX_OUTLOOK_CLIENT_ID:-}
       BOX_OUTLOOK_CLIENT_SECRET: ${BOX_OUTLOOK_CLIENT_SECRET:-}
       BOX_OUTLOOK_TENANT_ID: ${BOX_OUTLOOK_TENANT_ID:-}
+      EMAIL_VERIFY_BOUNCER_API_KEY: ${EMAIL_VERIFY_BOUNCER_API_KEY:-}
+      EMAIL_VERIFY_STRICT: ${EMAIL_VERIFY_STRICT:-false}
       # Sign in with Google / Apple. Separate from the BOX_* mailbox clients
       # above; email+password and passkeys work without any of these.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

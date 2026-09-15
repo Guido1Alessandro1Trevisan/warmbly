@@ -88,6 +88,7 @@ const (
 // Provider names for Result.Provider and contacts.verification_provider.
 const (
 	ProviderBuiltin         = "builtin"
+	ProviderBouncer         = "bouncer"
 	ProviderMillionVerifier = "millionverifier"
 	ProviderCleanMyList     = "cleanmylist"
 )

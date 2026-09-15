@@ -1733,12 +1733,20 @@ func main() {
 			HeloHost: emailVerifyHeloHost(),               // e.g. verify.warmbly.com
 			MailFrom: os.Getenv("EMAIL_VERIFY_MAIL_FROM"), // e.g. verify@warmbly.com
 		})
-		// Org key first, operator key second, built-in check last.
+		// Strict mode pins the instance Bouncer client; otherwise org key first,
+		// operator key second, and the built-in check last.
+		strictEmailVerification := config.StrictEmailVerification()
+		bouncerKey := os.Getenv("EMAIL_VERIFY_BOUNCER_API_KEY")
+		if strictEmailVerification && strings.TrimSpace(bouncerKey) == "" {
+			log.Fatal("EMAIL_VERIFY_STRICT=true requires EMAIL_VERIFY_BOUNCER_API_KEY")
+		}
 		emailVerifyService = emailverifyapp.NewService(contactRepostory, emailverifyapp.Options{
 			Builtin:                    emailVerifier,
 			BuiltinReady:               emailVerifier.ProbeReady(),
 			Providers:                  integrationServiceForHandler,
 			PlatformMillionVerifierKey: os.Getenv("EMAIL_VERIFY_MILLIONVERIFIER_API_KEY"),
+			PlatformBouncerKey:         bouncerKey,
+			Strict:                     strictEmailVerification,
 		})
 		verificationEvidence := emailverifyapp.NewEvidence(repository.NewVerificationEvidenceRepository(primaryDB))
 		emailVerifyService.SetEvidence(verificationEvidence)

@@ -395,6 +395,15 @@ Needed on the backend **and** every worker: the backend starts the OAuth flow, a
 
 Plain SMTP and IMAP mailboxes need none of this. If a worker is missing these values, the mailbox connects fine and then silently stops about an hour later, when its first access token expires.
 
+## Pre-send verification
+
+| Variable | What it does | Default |
+|---|---|---|
+| `EMAIL_VERIFY_BOUNCER_API_KEY` | Uses the instance's Bouncer account to verify recipients from the backend before campaign sending | unset |
+| `EMAIL_VERIFY_STRICT` | When `true`, only Bouncer `deliverable` verdicts checked within the last 30 days may be sent. Risky, unknown, stale, manual, imported, and provider-error results remain held | `false` |
+
+Strict verification fails closed. It does not fall back to the built-in SMTP probe when Bouncer is unavailable or out of credits, and the final campaign routing gate repeats the provider, source, verdict, and freshness checks before reserving work for a sender.
+
 ## Integrations
 
 | Variable | What it does | Default |

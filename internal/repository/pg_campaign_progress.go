@@ -1082,6 +1082,9 @@ func (r *campaignProgressRepository) GetLatestCampaignSequenceForContact(ctx con
 // cp is the SQL placeholder holding the campaign id. The caller must alias
 // contacts as `c`.
 func undeliverableClause(cp string) string {
+	if config.StrictEmailVerification() {
+		return "(c.verification_status <> 'valid' OR c.verification_provider <> 'bouncer' OR c.verification_source <> 'provider' OR c.verification_checked_at IS NULL OR c.verification_checked_at < NOW() - INTERVAL '30 days')"
+	}
 	return fmt.Sprintf(
 		"(c.verification_status = 'invalid' OR (c.verification_status = 'risky' "+
 			"AND NOT COALESCE((SELECT rc.risky_emails FROM campaigns rc WHERE rc.id = %[1]s), true)))",

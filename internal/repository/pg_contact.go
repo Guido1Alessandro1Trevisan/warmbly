@@ -729,8 +729,12 @@ func (r *contactRepository) ListVerificationCandidates(ctx context.Context, limi
 	for _, p := range models.VerificationProviders {
 		providers = append(providers, string(p))
 	}
+	recheckDays := config.VerificationRecheckDays
+	if config.StrictEmailVerification() {
+		recheckDays = 30
+	}
 	params := []any{
-		limit, config.VerificationUnknownRecheckDays, config.VerificationRecheckDays,
+		limit, config.VerificationUnknownRecheckDays, recheckDays,
 		config.VerificationEvidenceFreshDays, providers, emailverify.ProviderBuiltin,
 	}
 	rows, err := r.DB.Query(ctx, query, params...)
@@ -812,13 +816,17 @@ func (r *contactRepository) ResetContactsVerification(ctx context.Context, orgID
 // UndeliverableLeadIDs lists the campaign's leads the routing predicate skips
 // for verification reasons (invalid, or risky with the risky toggle off).
 func (r *contactRepository) UndeliverableLeadIDs(ctx context.Context, orgID, campaignID uuid.UUID) ([]uuid.UUID, *errx.Error) {
+	verificationGate := "(c.verification_status = 'invalid' OR (c.verification_status = 'risky' AND NOT cp.risky_emails))"
+	if config.StrictEmailVerification() {
+		verificationGate = "(c.verification_status <> 'valid' OR c.verification_provider <> 'bouncer' OR c.verification_source <> 'provider' OR c.verification_checked_at IS NULL OR c.verification_checked_at < NOW() - INTERVAL '30 days')"
+	}
 	query := `
 		SELECT c.id
 		FROM campaign_leads cl
 		JOIN contacts c ON c.id = cl.contact_id
 		JOIN campaigns cp ON cp.id = cl.campaign_id
 		WHERE cl.campaign_id = $1 AND cp.organization_id = $2
-		  AND (c.verification_status = 'invalid' OR (c.verification_status = 'risky' AND NOT cp.risky_emails))
+		  AND ` + verificationGate + `
 	`
 	params := []any{campaignID, orgID}
 	rows, err := r.DB.Query(ctx, query, params...)

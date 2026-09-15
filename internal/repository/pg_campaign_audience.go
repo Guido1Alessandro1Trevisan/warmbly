@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/warmbly/warmbly/internal/config"
 	"github.com/warmbly/warmbly/internal/infrastructure/db"
 )
 
@@ -53,6 +54,10 @@ func (r *campaignAudienceRepository) GetCampaignAudience(ctx context.Context, or
 	// sendable is the same predicate Deliverable counts, reused so every
 	// verification count shares one denominator.
 	const sendable = `ct.subscribed IS NOT FALSE AND NOT recipient_suppressed($1, ct.email)`
+	deliverable := sendable
+	if config.StrictEmailVerification() {
+		deliverable += ` AND ct.verification_status = 'valid' AND ct.verification_provider = 'bouncer' AND ct.verification_source = 'provider' AND ct.verification_checked_at >= NOW() - INTERVAL '30 days'`
+	}
 	err := r.DB.Pool.QueryRow(ctx, `
 		SELECT
 			COUNT(*),
@@ -64,7 +69,7 @@ func (r *campaignAudienceRepository) GetCampaignAudience(ctx context.Context, or
 			COUNT(*) FILTER (WHERE `+sendable+` AND ct.is_catch_all),
 			COUNT(*) FILTER (WHERE recipient_suppressed($1, ct.email)),
 			COUNT(*) FILTER (WHERE ct.subscribed IS FALSE),
-			COUNT(*) FILTER (WHERE `+sendable+`),
+			COUNT(*) FILTER (WHERE `+deliverable+`),
 			COUNT(*) FILTER (WHERE split_part(lower(ct.email), '@', 1) IN (`+rolePrefixesSQL+`)),
 			COUNT(*) FILTER (WHERE split_part(lower(ct.email), '@', 2) IN (`+freeMailDomainsSQL+`))
 		FROM campaign_leads cl
