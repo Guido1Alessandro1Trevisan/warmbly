@@ -391,6 +391,7 @@ Needed on the backend **and** every worker: the backend starts the OAuth flow, a
 |---|---|---|
 | `BOX_GOOGLE_CLIENT_ID`, `BOX_GOOGLE_CLIENT_SECRET` | Connect Gmail and Google Workspace mailboxes. Redirect URI is your API base plus `/addresses/google/callback` | unset |
 | `BOX_OUTLOOK_CLIENT_ID`, `BOX_OUTLOOK_CLIENT_SECRET` | Connect Outlook and Microsoft 365 mailboxes. Redirect URI is your API base plus `/addresses/outlook/callback` | unset |
+| `BOX_OUTLOOK_TENANT_ID` | Optional Entra directory UUID used by both the backend authorization flow and worker token refresh. Set it for a single-tenant app; unset uses `/common` for an intentionally multi-tenant app | unset |
 
 Plain SMTP and IMAP mailboxes need none of this. If a worker is missing these values, the mailbox connects fine and then silently stops about an hour later, when its first access token expires.
 

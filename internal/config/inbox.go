@@ -2,7 +2,9 @@ package config
 
 import (
 	"os"
+	"strings"
 
+	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
@@ -35,9 +37,19 @@ func GoogleOauth2Inbox(baseURL string) *oauth2.Config {
 // sync), so we request Graph scopes rather than the legacy IMAP/SMTP scopes:
 // Mail.Send (send), Mail.ReadWrite (delta sync + warmup move/mark/flag),
 // User.Read (resolve the mailbox owner via /me), and offline_access (refresh
-// token). None require tenant admin consent by default and all work on personal
-// Outlook.com accounts.
+// token). None require tenant admin consent by default. BOX_OUTLOOK_TENANT_ID
+// pins both authorization and refresh to one Entra organization when set.
 func OutlookOauth2Inbox(baseURL string) *oauth2.Config {
+	tenant := strings.TrimSpace(os.Getenv("BOX_OUTLOOK_TENANT_ID"))
+	if tenant == "" {
+		tenant = "common"
+	} else if parsed, err := uuid.Parse(tenant); err == nil {
+		tenant = parsed.String()
+	} else {
+		// Never turn malformed single-tenant configuration into /common access.
+		tenant = "invalid-tenant-id"
+	}
+	endpoint := "https://login.microsoftonline.com/" + tenant + "/oauth2/v2.0/"
 	return &oauth2.Config{
 		ClientID:     os.Getenv("BOX_OUTLOOK_CLIENT_ID"),
 		ClientSecret: os.Getenv("BOX_OUTLOOK_CLIENT_SECRET"),
@@ -52,8 +64,8 @@ func OutlookOauth2Inbox(baseURL string) *oauth2.Config {
 			"https://graph.microsoft.com/Mail.ReadWrite",
 		},
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-			TokenURL: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+			AuthURL:  endpoint + "authorize",
+			TokenURL: endpoint + "token",
 		},
 	}
 }

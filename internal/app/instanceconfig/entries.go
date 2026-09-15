@@ -737,6 +737,12 @@ var table = []Entry{
 		DocsAnchor: docsWorkers,
 		Resolve:    envValue("BOX_OUTLOOK_CLIENT_SECRET"),
 	},
+	{
+		Key: "BOX_OUTLOOK_TENANT_ID", Group: GroupWorkers, RuntimeChangeable: ChangeBootOnly,
+		Effect:     "The Microsoft Entra tenant UUID used by both mailbox authorization and worker token refresh. Unset preserves the multi-tenant /common endpoint.",
+		DocsAnchor: docsWorkers,
+		Resolve:    envValue("BOX_OUTLOOK_TENANT_ID"),
+	},
 
 	// Tracking.
 	{

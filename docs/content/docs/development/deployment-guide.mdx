@@ -523,6 +523,8 @@ Under **Certificates & secrets**, create a client secret, then set both values i
 ```bash
 BOX_OUTLOOK_CLIENT_ID=00000000-0000-0000-0000-000000000000
 BOX_OUTLOOK_CLIENT_SECRET=your-client-secret-value
+# For an app registered as "My organization only", use its directory UUID.
+BOX_OUTLOOK_TENANT_ID=00000000-0000-0000-0000-000000000000
 ```
 </Step>
 
@@ -535,6 +537,12 @@ None of the four permissions above requires admin consent by default, so an ordi
 <Callout type="warn" title="Workers need these too">
 The backend starts the OAuth flow, but **each worker refreshes the token** when it expires. Compose passes the `BOX_*` values to the worker automatically, and remote workers receive them in their enrollment config. If a worker is missing them, the mailbox connects fine and then silently stops about an hour later when its first access token expires.
 </Callout>
+
+For a single-tenant Entra registration, set `BOX_OUTLOOK_TENANT_ID` to the
+directory UUID on both the backend and every worker. This pins authorization
+and refresh to that tenant. Leave it unset only for an app intentionally
+registered for multiple organizations; the default then remains Microsoft's
+`/common` endpoint. A malformed nonempty value never falls back to `/common`.
 
 ### Sign in with Google or Apple (optional)
 
