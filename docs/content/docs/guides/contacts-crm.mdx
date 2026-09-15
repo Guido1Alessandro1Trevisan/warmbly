@@ -27,7 +27,7 @@ You must map at least one column to **Email**.
 Skipping still adds the contact to the campaigns, segments, and categories the import targets: it leaves their fields alone, it does not leave them out of the list. If the same address appears twice in one file it becomes one contact, and the extra rows count as skipped.
 </Callout>
 
-Rows with a missing or invalid email are reported with a line number and reason rather than imported. A blank cell never erases a value you already have, so re-importing a partial export enriches contacts instead of wiping them.
+Rows with a missing or invalid email are reported with a line number and reason rather than imported. Addresses are stored lowercased and stripped of any name around them, so a cell reading `Dana Reyes <dana@acme.com>` imports as `dana@acme.com` and both spellings of one address land on one contact. A blank cell never erases a value you already have, so re-importing a partial export enriches contacts instead of wiping them.
 
 Problems with the mapping itself, an unnamed custom field or a name Warmbly cannot use, are reported once before anything is written, so a single typo can never fail every row.
 
@@ -86,6 +86,12 @@ The set is the one the list is showing: search, filters, the subscription facet,
 Every bulk action reads the selection: **Edit**, **Segment**, **Remove from segment**, **Remove from campaign**, **Research**, **Verify**, **Mark deliverable** and **Delete**. **Push to CRM** is the exception: it calls the CRM once per contact while you wait, so it stays capped at `500` at a time.
 
 **Select all matching** is in the **From contacts** picker too, on a campaign's Leads tab and a segment page, so a whole search can be added as leads or members in one step.
+
+## Editing one contact
+
+Clicking a row opens the contact's panel. Its **Details** tab edits the fields the contact is made of: name, email address, company, phone, subscription, campaigns, categories and custom fields. Nothing is sent until **Save**, **Discard** puts the panel back to the stored values, and closing it with unsaved edits asks first.
+
+The email address can be changed here, which is the right move when someone's address was mistyped on import or they moved to a new domain. It is stored lowercased and stripped of any display name, and it has to be free: an address another contact already holds is refused, because merging two people's campaign history is not something the edit could undo. A new address also clears the contact's [verification](/guides/deliverability/#address-verification) verdict and everything the platform had observed about the old mailbox, so the background check starts the new address from scratch on its next pass, and the recipient provider Warmbly matches senders against is worked out again from the new domain. Emails already sent went to the old address and stay in the timeline as they happened.
 
 ## Editing many contacts at once
 

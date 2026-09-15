@@ -359,7 +359,7 @@ func (tc *TrackingConsumer) HandleTrackingEvent(ctx context.Context, event *even
 			// A human open proves the mailbox is live; a prefetch proves
 			// only that a proxy fetched an image.
 			if tc.evidence != nil {
-				tc.evidence.RecordEvidence(ctx, contactID, "opened", sequenceID.String(), "")
+				tc.evidence.RecordEvidence(ctx, contactID, models.Step(&campaignID, &sequenceID), "opened", sequenceID.String(), "")
 			}
 		}
 	case events.EventTypeEmailClicked:
@@ -379,7 +379,7 @@ func (tc *TrackingConsumer) HandleTrackingEvent(ctx context.Context, event *even
 			} else if err == nil {
 				instantKind = "click"
 				if tc.evidence != nil {
-					tc.evidence.RecordEvidence(ctx, contactID, "clicked", sequenceID.String(), "")
+					tc.evidence.RecordEvidence(ctx, contactID, models.Step(&campaignID, &sequenceID), "clicked", sequenceID.String(), "")
 				}
 			}
 		}
@@ -461,7 +461,7 @@ func (tc *TrackingConsumer) finishHumanClick(task *repository.CampaignTask, even
 		tc.publishTrackingEvent(ctx, task, event, true, label, origin)
 	} else {
 		if tc.evidence != nil {
-			tc.evidence.RecordEvidence(ctx, *task.ContactID, "clicked", task.SequenceID.String(), "")
+			tc.evidence.RecordEvidence(ctx, *task.ContactID, models.Step(task.CampaignID, task.SequenceID), "clicked", task.SequenceID.String(), "")
 		}
 		if tc.advancedService != nil {
 			tc.advancedService.FireInstantActions(ctx, *task.CampaignID, *task.ContactID, *task.SequenceID, "click")

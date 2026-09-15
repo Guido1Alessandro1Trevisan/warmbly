@@ -18,7 +18,7 @@ import (
 // (contact, kind, ref) and best effort: a failure is logged, never returned
 // into the caller's path.
 type EvidenceRecorder interface {
-	RecordEvidence(ctx context.Context, contactID uuid.UUID, kind, ref, detail string)
+	RecordEvidence(ctx context.Context, contactID uuid.UUID, step models.EvidenceStep, kind, ref, detail string)
 }
 
 // Evidence scores contacts from the ledger. It is separate from Service so
@@ -37,11 +37,11 @@ func NewEvidence(repo repository.VerificationEvidenceRepository) *Evidence {
 
 func (e *Evidence) SetOnChange(fn func(ctx context.Context, contactID uuid.UUID)) { e.onChange = fn }
 
-func (e *Evidence) RecordEvidence(ctx context.Context, contactID uuid.UUID, kind, ref, detail string) {
+func (e *Evidence) RecordEvidence(ctx context.Context, contactID uuid.UUID, step models.EvidenceStep, kind, ref, detail string) {
 	if e == nil || e.repo == nil || contactID == uuid.Nil {
 		return
 	}
-	inserted, err := e.repo.Record(ctx, contactID, kind, ref, detail, time.Now().UTC())
+	inserted, err := e.repo.Record(ctx, contactID, step, kind, ref, detail, time.Now().UTC())
 	if err != nil {
 		log.Warn().Err(err).Str("contact_id", contactID.String()).Str("kind", kind).Msg("verification evidence not recorded")
 		return

@@ -146,7 +146,7 @@ A JSON array of contact objects (at least one, up to the per-request maximum; an
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `email` | string | Yes | Contact email address. |
+| `email` | string | Yes | Contact email address. Stored lowercased; a display name (`Dana Reyes <dana@acme.com>`) is reduced to the address inside it, and anything that is not an address answers `400`. |
 | `first_name` | string | No | First name. |
 | `last_name` | string | No | Last name. |
 | `company` | string | No | Company name. |
@@ -585,6 +585,8 @@ When the contact is suppressed, `suppression` is an object: `{ "id", "kind", "va
 
 Partially updates a single contact. Only the fields present are changed. Campaign and category lists can be set wholesale or adjusted with diff-style add/remove.
 
+`email` replaces the contact's address. It is stored lowercased, a display name (`Dana Reyes <dana@acme.com>`) is reduced to the address inside it, and anything that is not an address answers `400`. The address has to be free: one another contact already holds answers `409` with `code` `contact_email_taken` rather than merging the two. A changed address drops the contact's verification verdict back to `unknown`, clears the delivery evidence behind it and forgets the cached `esp_provider`, because all three belonged to the old mailbox; the next verification pass checks the new address and the recipient provider is derived again from the new domain. Steps already sent went to the old address and keep their history.
+
 Auth: **Scope** `WRITE_CONTACTS` · **Org permission** `manage_contacts`
 
 | Parameter | In | Type | Description |
@@ -597,6 +599,7 @@ Auth: **Scope** `WRITE_CONTACTS` · **Org permission** `manage_contacts`
 | --- | --- | --- | --- |
 | `first_name` | string | No | First name. |
 | `last_name` | string | No | Last name. |
+| `email` | string | No | New email address. Normalized to lowercase; must be a valid address and unused by another contact. |
 | `company` | string | No | Company. |
 | `phone` | string | No | Phone. |
 | `custom_fields` | object | No | Replaces the custom-fields map. |

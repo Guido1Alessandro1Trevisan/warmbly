@@ -211,7 +211,7 @@ func (s *JobsService) failCampaignSend(ctx context.Context, task *repository.Tas
 	// delivery route; a rejection of the sender, the session or the content
 	// says nothing about the address.
 	if s.Evidence != nil && ct.ContactID != nil && ct.SequenceID != nil && emailverify.NamesRecipient(reason) {
-		s.Evidence.RecordEvidence(ctx, *ct.ContactID, "bounced_recipient", "send:"+ct.SequenceID.String(), reason)
+		s.Evidence.RecordEvidence(ctx, *ct.ContactID, models.Step(&campaignID, ct.SequenceID), "bounced_recipient", "send:"+ct.SequenceID.String(), reason)
 	}
 
 	attempts, exhausted, rolledBack := 0, false, false

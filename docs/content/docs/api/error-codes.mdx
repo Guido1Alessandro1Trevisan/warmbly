@@ -235,6 +235,12 @@ Returned when the request conflicts with existing data.
 }
 ```
 
+One conflict carries its own `code`. A contact's email address has to be free, so changing one to an address another contact already holds is refused rather than merging the two:
+
+| `code` | Status | Meaning |
+|--------|--------|---------|
+| `contact_email_taken` | 409 | The address given to [update a contact](/api/reference/contacts/#update-a-contact) already belongs to another contact |
+
 ### 422 Unprocessable
 
 Returned when validation fails on the request data.
