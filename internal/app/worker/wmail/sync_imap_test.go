@@ -30,6 +30,12 @@ type fakeImapConn struct {
 	noCondStore bool
 	flags       map[uint32]imap.FlagState
 	flagScans   int
+	// all is the folder's complete UID set, which the drafts reconciliation
+	// diffs against the UIDs the platform holds.
+	all []goimap.UID
+	// selectGen, when non-zero, is the UIDVALIDITY SELECT reports, which the
+	// reconciliation compares against the one the listing gave it.
+	selectGen uint32
 }
 
 func (c *fakeImapConn) Folders() ([]models.Mailbox, *errx.MailError) { return c.folders, nil }
@@ -69,8 +75,25 @@ func (c *fakeImapConn) SelectForSync(string) (uint32, *errx.MailError) {
 	return uint32(len(c.changed)), nil
 }
 
+func (c *fakeImapConn) SelectForSyncGen(name string) (uint32, uint32, *errx.MailError) {
+	gen := c.selectGen
+	if gen == 0 {
+		for _, f := range c.folders {
+			if f.Name == name {
+				gen = f.UIDValidity
+			}
+		}
+	}
+	n, err := c.SelectForSync(name)
+	return n, gen, err
+}
+
 func (c *fakeImapConn) SearchChangedSince(uint64) ([]goimap.UID, *errx.MailError) {
 	return append([]goimap.UID(nil), c.changed...), nil
+}
+
+func (c *fakeImapConn) SearchAll() ([]goimap.UID, *errx.MailError) {
+	return append([]goimap.UID(nil), c.all...), nil
 }
 
 func (c *fakeImapConn) FetchEnvelopes(_ context.Context, uids []goimap.UID) ([]*imap.Fetched, *errx.MailError) {
@@ -293,6 +316,11 @@ func (c *backfillImapConn) ReleaseMailbox()                              {}
 func (c *backfillImapConn) SelectForSync(name string) (uint32, *errx.MailError) {
 	c.selected = name
 	return uint32(len(c.uids[name])), nil
+}
+
+func (c *backfillImapConn) SelectForSyncGen(name string) (uint32, uint32, *errx.MailError) {
+	n, err := c.SelectForSync(name)
+	return n, 0, err
 }
 
 func (c *backfillImapConn) SearchChangedSince(uint64) ([]goimap.UID, *errx.MailError) {
@@ -573,4 +601,192 @@ func (m knownMessageMap) Get(_ context.Context, _, _ uuid.UUID, messageID string
 }
 func (knownMessageMap) Del(context.Context, uuid.UUID, uuid.UUID, string, uuid.UUID) error {
 	return nil
+}
+
+// fakeSyncContext stands in for the worker's HTTP sync-context proxy and
+// answers with the platform's stored rows for one folder.
+type fakeSyncContext struct {
+	stored map[string][]repository.StoredFolderMessage
+	calls  int
+	// uidValidity is what the last lookup asked for, so a test can check the
+	// reconciliation is scoped to the folder's current generation.
+	uidValidity uint32
+}
+
+func (fakeSyncContext) IsOwnConversation(context.Context, uuid.UUID, uuid.UUID, []string, string) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeSyncContext) ListFolderMessages(_ context.Context, _, _ uuid.UUID, folderPath string, uidValidity uint32) ([]repository.StoredFolderMessage, error) {
+	f.calls++
+	f.uidValidity = uidValidity
+	return f.stored[folderPath], nil
+}
+
+func removeIDs(events []captured) []uuid.UUID {
+	var out []uuid.UUID
+	for _, e := range events {
+		if e.eventType != models.JobEventTypeRemoveEmail {
+			continue
+		}
+		out = append(out, e.body.(*models.JobEventRemoveEmail).ID)
+	}
+	return out
+}
+
+func draftsFolder(modseq uint64) models.Mailbox {
+	return models.Mailbox{Name: "[Gmail]/Drafts", Attrs: []string{"\\Drafts"}, UIDValidity: 9, HighestModSeq: modseq}
+}
+
+func draftsBox(modseq uint64) *models.Mailbox {
+	b := draftsFolder(modseq)
+	return &b
+}
+
+// Gmail's autosave gives every draft a new UID and a new Message-ID and
+// expunges the previous copy. The pass must remove the row for the copy the
+// server no longer reports, and leave the current one alone.
+func TestImapSyncRemovesExpungedDraftRows(t *testing.T) {
+	conn := &fakeImapConn{
+		folders: []models.Mailbox{draftsFolder(500)},
+		changed: []goimap.UID{5},
+		all:     []goimap.UID{5},
+	}
+	w, events := newIMAPTestMail(conn, &fixedBudget{allow: 10}, draftsBox(400))
+	w.EmailMessageMapRepository = knownMessageMap{id: uuid.New().String()}
+	expunged, current := uuid.New(), uuid.New()
+	ctx := &fakeSyncContext{stored: map[string][]repository.StoredFolderMessage{
+		"[Gmail]/Drafts": {
+			{UID: 4, MessageID: "<4@fake.test>", ID: expunged},
+			{UID: 5, MessageID: "<5@fake.test>", ID: current},
+		},
+	}}
+	w.SyncContext = ctx
+
+	if err := w.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	removed := removeIDs(*events)
+	if len(removed) != 1 || removed[0] != expunged {
+		t.Fatalf("removed %v, want exactly the expunged draft %s", removed, expunged)
+	}
+	// The lookup must be scoped to the folder's current UIDVALIDITY, so rows
+	// whose UIDs a generation change voided are never read as expunged.
+	if ctx.uidValidity != 9 {
+		t.Errorf("looked up folder rows for UIDVALIDITY %d, want 9", ctx.uidValidity)
+	}
+}
+
+// A UID only means anything inside one UIDVALIDITY generation. If the folder
+// is recreated between the listing and the SELECT, the live UIDs describe a
+// different folder from the stored rows, and diffing them would remove rows
+// that were never compared. The pass must decline instead.
+func TestImapSyncSkipsReconcileWhenUIDValidityMovedUnderIt(t *testing.T) {
+	conn := &fakeImapConn{
+		folders: []models.Mailbox{draftsFolder(500)},
+		all:     []goimap.UID{5},
+		// The listing said 9; SELECT reports a recreated folder.
+		selectGen: 10,
+	}
+	w, events := newIMAPTestMail(conn, &fixedBudget{allow: 10}, draftsBox(500))
+	w.SyncContext = &fakeSyncContext{stored: map[string][]repository.StoredFolderMessage{
+		"[Gmail]/Drafts": {
+			{UID: 4, MessageID: "<4@fake.test>", ID: uuid.New()},
+			{UID: 7, MessageID: "<7@fake.test>", ID: uuid.New()},
+		},
+	}}
+
+	if err := w.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	if removed := removeIDs(*events); len(removed) != 0 {
+		t.Fatalf("removed %v across a UIDVALIDITY change, want nothing", removed)
+	}
+}
+
+// Rows are also reconciled on a pass where the drafts folder did not change,
+// which is what cleans up the rows an earlier worker or an earlier build left
+// behind.
+func TestImapSyncRemovesAccumulatedDraftRowsOnAQuietPass(t *testing.T) {
+	conn := &fakeImapConn{
+		folders: []models.Mailbox{draftsFolder(500)},
+		all:     []goimap.UID{5},
+	}
+	w, events := newIMAPTestMail(conn, &fixedBudget{allow: 10}, draftsBox(500))
+	expunged := uuid.New()
+	w.SyncContext = &fakeSyncContext{stored: map[string][]repository.StoredFolderMessage{
+		"[Gmail]/Drafts": {
+			{UID: 4, MessageID: "<4@fake.test>", ID: expunged},
+			{UID: 5, MessageID: "<5@fake.test>", ID: uuid.New()},
+		},
+	}}
+
+	if err := w.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if conn.fetches != 0 {
+		t.Errorf("fetched %d batches from an unchanged folder, want 0", conn.fetches)
+	}
+
+	removed := removeIDs(*events)
+	if len(removed) != 1 || removed[0] != expunged {
+		t.Fatalf("removed %v, want the accumulated draft row %s", removed, expunged)
+	}
+}
+
+// A draft re-appended under a new UID keeps its Message-ID, so the pass
+// fetched it: the row was re-filed, not expunged, and must survive.
+func TestImapSyncKeepsADraftReappendedUnderANewUID(t *testing.T) {
+	conn := &fakeImapConn{
+		folders: []models.Mailbox{draftsFolder(500)},
+		changed: []goimap.UID{5},
+		all:     []goimap.UID{5},
+	}
+	w, events := newIMAPTestMail(conn, &fixedBudget{allow: 10}, draftsBox(400))
+	w.EmailMessageMapRepository = knownMessageMap{id: uuid.New().String()}
+	w.SyncContext = &fakeSyncContext{stored: map[string][]repository.StoredFolderMessage{
+		"[Gmail]/Drafts": {
+			// Filed under the old UID 4, but the same Message-ID arrived
+			// again as UID 5 in this pass.
+			{UID: 4, MessageID: "<5@fake.test>", ID: uuid.New()},
+		},
+	}}
+
+	if err := w.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if removed := removeIDs(*events); len(removed) != 0 {
+		t.Fatalf("removed %v for a draft that was re-appended, not expunged", removed)
+	}
+}
+
+// The same absence in a folder that is not drafts is not a removal: a message
+// can leave INBOX for a place this sync does not follow (Gmail's All Mail is
+// dropped as a virtual label view), and deleting the row would lose mail the
+// user still expects to see.
+func TestImapSyncDoesNotReconcileExpungesOutsideDrafts(t *testing.T) {
+	conn := &fakeImapConn{
+		folders: []models.Mailbox{{Name: "INBOX", UIDValidity: 7, HighestModSeq: 500}},
+		changed: []goimap.UID{5},
+		all:     []goimap.UID{5},
+	}
+	w, events := newIMAPTestMail(conn, &fixedBudget{allow: 10},
+		&models.Mailbox{Name: "INBOX", UIDValidity: 7, HighestModSeq: 400})
+	w.EmailMessageMapRepository = knownMessageMap{id: uuid.New().String()}
+	ctx := &fakeSyncContext{stored: map[string][]repository.StoredFolderMessage{
+		"INBOX": {{UID: 4, MessageID: "<4@fake.test>", ID: uuid.New()}},
+	}}
+	w.SyncContext = ctx
+
+	if err := w.Sync(t.Context()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if removed := removeIDs(*events); len(removed) != 0 {
+		t.Fatalf("removed %v from INBOX, where an absent UID is not proof the row is gone", removed)
+	}
+	if ctx.calls != 0 {
+		t.Errorf("asked the backend about INBOX %d times; only drafts are reconciled", ctx.calls)
+	}
 }

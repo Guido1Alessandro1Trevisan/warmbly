@@ -318,6 +318,22 @@ func (c *Client) SelectForSync(mailbox string) (uint32, *errx.MailError) {
 	return data.NumMessages, nil
 }
 
+// SelectForSyncGen opens the mailbox exactly as SelectForSync does and also
+// reports the selected UIDVALIDITY. A caller that diffs stored UIDs against
+// the folder's live set needs the generation it actually selected: UIDs only
+// mean anything within one, so acting across a change deletes rows it never
+// compared.
+func (c *Client) SelectForSyncGen(mailbox string) (uint32, uint32, *errx.MailError) {
+	c.lifecycle.RLock()
+	defer c.lifecycle.RUnlock()
+	defer c.begin()()
+	data, err := c.selectMailbox(mailbox, &imap.SelectOptions{ReadOnly: true, CondStore: c.condStore.Load()})
+	if err != nil {
+		return 0, 0, c.handleError(err)
+	}
+	return data.NumMessages, data.UIDValidity, nil
+}
+
 // ReleaseMailbox drops the selected mailbox. Dovecot answers LIST-STATUS for
 // the selected mailbox with the values it held at SELECT, so a loop that keeps
 // INBOX selected never sees another change land. Servers without UNSELECT keep
@@ -363,6 +379,13 @@ func (c *Client) SearchSince(since time.Time) ([]imap.UID, *errx.MailError) {
 // message folder to one round trip per tick.
 func (c *Client) SearchChangedSince(modSeq uint64) ([]imap.UID, *errx.MailError) {
 	return c.uidSearch(&imap.SearchCriteria{ModSeq: &imap.SearchCriteriaModSeq{ModSeq: modSeq + 1}})
+}
+
+// SearchAll returns every UID in the selected mailbox, ascending. An expunge
+// leaves no UID behind to report, so the drafts reconciliation diffs this set
+// against the UIDs the platform holds for the folder.
+func (c *Client) SearchAll() ([]imap.UID, *errx.MailError) {
+	return c.uidSearch(&imap.SearchCriteria{})
 }
 
 // SearchNewSince returns the UIDs at or above uidNext: the mail that arrived

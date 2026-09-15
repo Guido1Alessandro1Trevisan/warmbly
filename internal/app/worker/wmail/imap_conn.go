@@ -28,6 +28,12 @@ type ImapConn interface {
 	SelectForSync(mailbox string) (uint32, *errx.MailError)
 	SearchChangedSince(modSeq uint64) ([]goimap.UID, *errx.MailError)
 	SearchNewSince(uidNext uint32) ([]goimap.UID, *errx.MailError)
+	// SearchAll is the folder's complete UID set, the presence side of the
+	// drafts expunge reconciliation.
+	SearchAll() ([]goimap.UID, *errx.MailError)
+	// SelectForSyncGen selects like SelectForSync and reports the selected
+	// UIDVALIDITY, so the reconciliation can refuse to diff across a change.
+	SelectForSyncGen(mailbox string) (uint32, uint32, *errx.MailError)
 	FetchFlags(ctx context.Context, uidFrom uint32) (map[uint32]imap.FlagState, *errx.MailError)
 	SearchSince(since time.Time) ([]goimap.UID, *errx.MailError)
 	FetchEnvelopes(ctx context.Context, uids []goimap.UID) ([]*imap.Fetched, *errx.MailError)
