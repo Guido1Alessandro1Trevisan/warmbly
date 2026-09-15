@@ -23944,7 +23944,7 @@
           "email": {
             "type": "string",
             "format": "email",
-            "description": "New email address. Stored lowercased and stripped of any display name. Unique within the workspace: an address another contact holds returns 409 contact_email_taken. Changing it resets the contact's verification verdict to unknown."
+            "description": "New email address. Stored lowercased and stripped of any display name. Must be free: an address another contact holds returns 409 contact_email_taken. Changing it resets the contact's verification verdict to unknown."
           },
           "company": {
             "type": "string"

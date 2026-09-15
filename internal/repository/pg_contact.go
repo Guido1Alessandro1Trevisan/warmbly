@@ -178,10 +178,16 @@ func (r *contactRepository) Add(ctx context.Context, userID string, orgID uuid.U
 	categoryIDs := make([][]uuid.UUID, 0, len(contacts))
 	segmentIDs := make([][]uuid.UUID, 0, len(contacts))
 	for _, lead := range contacts {
-		lead.Email = strings.TrimSpace(lead.Email)
-		if !email.IsValid(lead.Email) {
+		// Normalize, not just trim: mail.ParseAddress accepts
+		// `Dana Reyes <dana@acme.com>` and the whole string used to be stored
+		// as the recipient address, which sends to nobody. The edit path
+		// normalizes the same way, so the two cannot disagree about what an
+		// address is.
+		addr, ok := email.Normalize(lead.Email)
+		if !ok {
 			return nil, errx.ErrEmail
 		}
+		lead.Email = addr
 		lead.FirstName = strings.TrimSpace(lead.FirstName)
 		lead.LastName = strings.TrimSpace(lead.LastName)
 		lead.Company = strings.TrimSpace(lead.Company)
@@ -2137,6 +2143,15 @@ func (r *contactRepository) Update(ctx context.Context, userID, contactID string
 		if !ok {
 			return nil, errx.ErrEmail
 		}
+		// Two different comparisons. A stored address that predates
+		// normalization can differ from `next` only in case, which is still a
+		// write (the row is normalized) but not a different mailbox, so it must
+		// not throw away a verdict the address earned.
+		if next != c.Email {
+			setClauses = append(setClauses, fmt.Sprintf("email = $%d", argIndex))
+			args = append(args, next)
+			argIndex++
+		}
 		if next != strings.ToLower(c.Email) {
 			var taken bool
 			dupQ := `SELECT EXISTS (
@@ -2152,9 +2167,6 @@ func (r *contactRepository) Update(ctx context.Context, userID, contactID string
 				return nil, errx.ErrContactEmailTaken
 			}
 			emailChanged = true
-			setClauses = append(setClauses, fmt.Sprintf("email = $%d", argIndex))
-			args = append(args, next)
-			argIndex++
 			setClauses = append(setClauses,
 				"verification_status = 'unknown'",
 				"verification_sub_status = ''",
@@ -2165,6 +2177,19 @@ func (r *contactRepository) Update(ctx context.Context, userID, contactID string
 				"verification_checked_at = NULL",
 				"verification_confidence = 0",
 				"verification_evidence_at = NULL",
+				// The ledger the verdict is scored from is wiped below, and
+				// this is the watermark that keeps it wiped: the delivery
+				// credit job re-derives 'delivered' rows from every step ever
+				// sent, so without it the old mailbox's deliveries come back on
+				// the next pass and hand the new address a verdict it never
+				// earned.
+				"verification_evidence_reset_at = NOW()",
+				// esp_provider is derived from the address domain and cached
+				// forever: the scheduler only fills it when it is empty, so a
+				// gmail-to-outlook correction would keep routing ESP-matched
+				// sends by the old provider.
+				"esp_provider = ''",
+				"esp_resolved_at = NULL",
 			)
 		}
 	}

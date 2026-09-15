@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -34,7 +36,7 @@ func TestLiveContactEmailIsSavedAndResetsVerification(t *testing.T) {
 		       verification_reason = 'accepted', verification_source = 'probe',
 		       verification_provider = 'builtin', is_catch_all = true,
 		       verification_checked_at = NOW(), verification_confidence = 80,
-		       verification_evidence_at = NOW()
+		       verification_evidence_at = NOW(), esp_provider = 'gmail', esp_resolved_at = NOW()
 		WHERE id = $1`, f.contact); err != nil {
 		t.Fatalf("seed verdict: %v", err)
 	}
@@ -44,22 +46,27 @@ func TestLiveContactEmailIsSavedAndResetsVerification(t *testing.T) {
 		t.Fatalf("seed evidence: %v", err)
 	}
 
-	read := func() (string, string, string, bool, bool, int16, bool, int) {
+	type state struct {
+		addr, status, source, esp string
+		catchAll, checked         bool
+		confidence                int16
+		evidenceAt, resetAt       bool
+		evidence                  int
+	}
+	read := func() state {
 		t.Helper()
-		var addr, status, source string
-		var catchAll, checked, evidenceAt bool
-		var confidence int16
-		var evidence int
+		var st state
 		if err := pool.QueryRow(ctx, `
-			SELECT c.email, c.verification_status, c.verification_source, c.is_catch_all,
+			SELECT c.email, c.verification_status, c.verification_source, c.esp_provider, c.is_catch_all,
 			       c.verification_checked_at IS NOT NULL, c.verification_confidence,
-			       c.verification_evidence_at IS NOT NULL,
+			       c.verification_evidence_at IS NOT NULL, c.verification_evidence_reset_at IS NOT NULL,
 			       (SELECT COUNT(*) FROM contact_verification_evidence e WHERE e.contact_id = c.id)
 			FROM contacts c WHERE c.id = $1`, f.contact).
-			Scan(&addr, &status, &source, &catchAll, &checked, &confidence, &evidenceAt, &evidence); err != nil {
+			Scan(&st.addr, &st.status, &st.source, &st.esp, &st.catchAll, &st.checked, &st.confidence,
+				&st.evidenceAt, &st.resetAt, &st.evidence); err != nil {
 			t.Fatalf("read contact: %v", err)
 		}
-		return addr, status, source, catchAll, checked, confidence, evidenceAt, evidence
+		return st
 	}
 
 	// A re-save of the address already on the row, in another case, is not a
@@ -68,8 +75,21 @@ func TestLiveContactEmailIsSavedAndResetsVerification(t *testing.T) {
 	if _, xerr := repo.Update(ctx, mate, f.contact.String(), f.org, &models.UpdateContact{Email: &same}); xerr != nil {
 		t.Fatalf("update same address: %v", xerr)
 	}
-	if _, status, _, _, _, _, _, evidence := read(); status != "valid" || evidence != 1 {
-		t.Fatalf("re-saving the same address reset verification: status=%q evidence=%d", status, evidence)
+	if st := read(); st.status != "valid" || st.evidence != 1 || st.resetAt {
+		t.Fatalf("re-saving the same address reset verification: %+v", st)
+	}
+
+	// A stored address that predates normalization is rewritten in place, and
+	// that is still not a different mailbox.
+	if _, err := pool.Exec(ctx, `UPDATE contacts SET email = $2 WHERE id = $1`, f.contact, same); err != nil {
+		t.Fatalf("legacy casing: %v", err)
+	}
+	lower := strings.ToLower(same)
+	if _, xerr := repo.Update(ctx, mate, f.contact.String(), f.org, &models.UpdateContact{Email: &lower}); xerr != nil {
+		t.Fatalf("normalize casing: %v", xerr)
+	}
+	if st := read(); st.addr != lower || st.status != "valid" || st.evidence != 1 {
+		t.Fatalf("case-only save did not normalize in place: %+v", st)
 	}
 
 	// The real edit. A display name and stray case are normalized away.
@@ -81,16 +101,23 @@ func TestLiveContactEmailIsSavedAndResetsVerification(t *testing.T) {
 	if updated.Email != "dana@acme.test" {
 		t.Fatalf("response email = %q, want dana@acme.test", updated.Email)
 	}
-	addr, status, source, catchAll, checked, confidence, evidenceAt, evidence := read()
-	if addr != "dana@acme.test" {
-		t.Fatalf("stored email = %q, want dana@acme.test", addr)
+	st := read()
+	if st.addr != "dana@acme.test" {
+		t.Fatalf("stored email = %q, want dana@acme.test", st.addr)
 	}
-	if status != "unknown" || source != "" || catchAll || checked || confidence != 0 || evidenceAt {
-		t.Fatalf("verification survived the address change: status=%q source=%q catch_all=%v checked=%v confidence=%d evidence_at=%v",
-			status, source, catchAll, checked, confidence, evidenceAt)
+	if st.status != "unknown" || st.source != "" || st.catchAll || st.checked || st.confidence != 0 || st.evidenceAt {
+		t.Fatalf("verification survived the address change: %+v", st)
 	}
-	if evidence != 0 {
-		t.Fatalf("evidence rows after the address change = %d, want 0", evidence)
+	if st.evidence != 0 {
+		t.Fatalf("evidence rows after the address change = %d, want 0", st.evidence)
+	}
+	if !st.resetAt {
+		t.Fatal("no evidence watermark, so the delivery credit job will hand the new address the old mailbox's record")
+	}
+	// esp_provider is a cache of the address domain and the scheduler only
+	// fills it when empty, so a stale one routes ESP-matched sends forever.
+	if st.esp != "" {
+		t.Fatalf("esp_provider after the address change = %q, want empty", st.esp)
 	}
 
 	// An unrelated edit still reports the current address.
@@ -101,6 +128,71 @@ func TestLiveContactEmailIsSavedAndResetsVerification(t *testing.T) {
 	}
 	if updated.Email != "dana@acme.test" {
 		t.Fatalf("email after unrelated edit = %q", updated.Email)
+	}
+}
+
+// The delivery-credit job re-derives 'delivered' evidence from every step ever
+// sent. Without the watermark the rows the address change deletes come back on
+// its next pass, and the new address inherits a verdict earned by the old one.
+func TestLiveContactEmailChangeSurvivesTheDeliveryCreditJob(t *testing.T) {
+	handle, pool := liveContactDB(t)
+	f := newSharedOrgFixture(t, pool)
+	repo := NewContactRepostory(handle)
+	evidence := NewVerificationEvidenceRepository(handle)
+	ctx := context.Background()
+
+	seq := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO sequences (id, campaign_id, organization_id, name, subject, body_plain, body_html)
+	      VALUES ($1, $2, $3, 'Email 1', 'Hi', 'Body', 'Body')`, seq, f.campaign, f.org); err != nil {
+		t.Fatalf("sequence: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO campaign_contact_progress (campaign_id, contact_id, sequence_id, sent_at, dispatched_at)
+	      VALUES ($1, $2, $3, NOW() - interval '30 days', NOW() - interval '30 days')`, f.campaign, f.contact, seq); err != nil {
+		t.Fatalf("progress: %v", err)
+	}
+	t.Cleanup(func() {
+		c := context.Background()
+		for _, sql := range []string{
+			`DELETE FROM contact_verification_evidence WHERE contact_id IN (SELECT id FROM contacts WHERE organization_id = $1)`,
+			`DELETE FROM campaign_contact_progress WHERE campaign_id IN (SELECT id FROM campaigns WHERE organization_id = $1)`,
+			`DELETE FROM sequences WHERE organization_id = $1`,
+		} {
+			if _, err := pool.Exec(c, sql, f.org); err != nil {
+				t.Errorf("cleanup: %v", err)
+			}
+		}
+	})
+
+	// The old address earns its delivery.
+	if _, err := evidence.CreditCleanDeliveries(ctx, time.Hour, 1000); err != nil {
+		t.Fatalf("credit: %v", err)
+	}
+	var rows int
+	count := func() int {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM contact_verification_evidence WHERE contact_id = $1`, f.contact).Scan(&rows); err != nil {
+			t.Fatalf("count evidence: %v", err)
+		}
+		return rows
+	}
+	if count() != 1 {
+		t.Fatalf("evidence after the credit pass = %d, want 1", rows)
+	}
+
+	next := "moved@acme.test"
+	if _, xerr := repo.Update(ctx, f.mate.String(), f.contact.String(), f.org, &models.UpdateContact{Email: &next}); xerr != nil {
+		t.Fatalf("update email: %v", xerr)
+	}
+	if count() != 0 {
+		t.Fatalf("evidence right after the address change = %d, want 0", rows)
+	}
+
+	// The next pass must not hand it back.
+	if _, err := evidence.CreditCleanDeliveries(ctx, time.Hour, 1000); err != nil {
+		t.Fatalf("credit again: %v", err)
+	}
+	if count() != 0 {
+		t.Fatalf("the credit job re-derived %d evidence rows for the new address from mail sent to the old one", rows)
 	}
 }
 
@@ -131,6 +223,19 @@ func TestLiveContactEmailRefusesCollisionAndGarbage(t *testing.T) {
 		if xerr == nil || xerr.Code != errx.BadRequest {
 			t.Fatalf("address %q = %v, want a 400", bad, xerr)
 		}
+	}
+
+	// Creating one goes through the same normalizer, so the two paths cannot
+	// disagree about what an address is: mail.ParseAddress accepts a display
+	// name and the whole string used to be stored as the recipient.
+	created, xerr := repo.Add(ctx, f.owner.String(), f.org, []models.AddContact{{
+		FirstName: "Dana", Email: "  Dana Reyes <Dana@Created.Test> ",
+	}})
+	if xerr != nil || len(created) != 1 {
+		t.Fatalf("add: %v", xerr)
+	}
+	if created[0].Email != "dana@created.test" {
+		t.Fatalf("created contact email = %q, want dana@created.test", created[0].Email)
 	}
 
 	// Nothing above may have written.

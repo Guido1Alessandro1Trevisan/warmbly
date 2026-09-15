@@ -134,12 +134,19 @@ func (r *verificationEvidenceRepository) CreditCleanDeliveries(ctx context.Conte
 	// One evidence row per sent step; the ref is the step so a re-run of the
 	// job is a no-op, and a step that bounces later is excluded here and
 	// recorded as a bounce by the deliverability path instead.
+	// The join to contacts is what keeps a corrected address from inheriting
+	// the old mailbox's record: this credit is derived from every step ever
+	// sent, with no lower bound of its own, so the evidence an address change
+	// deletes would come straight back on the next pass. Steps sent before the
+	// change went to a different mailbox and are not evidence about this one.
 	query := `
 		WITH due AS (
 			SELECT p.contact_id, p.campaign_id, p.sequence_id, p.sent_at
 			FROM campaign_contact_progress p
+			JOIN contacts c ON c.id = p.contact_id
 			WHERE p.sent_at IS NOT NULL AND p.bounced_at IS NULL
 			  AND p.sent_at < NOW() - make_interval(secs => $1)
+			  AND (c.verification_evidence_reset_at IS NULL OR p.sent_at > c.verification_evidence_reset_at)
 			  AND NOT EXISTS (
 			    SELECT 1 FROM contact_verification_evidence e
 			    WHERE e.contact_id = p.contact_id AND e.kind = 'delivered'
