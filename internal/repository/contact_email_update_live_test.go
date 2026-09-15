@@ -194,6 +194,48 @@ func TestLiveContactEmailChangeSurvivesTheDeliveryCreditJob(t *testing.T) {
 	if count() != 0 {
 		t.Fatalf("the credit job re-derived %d evidence rows for the new address from mail sent to the old one", rows)
 	}
+
+	// A send that was already on the bus when the address changed has its
+	// sent_at stamped by the worker's result afterwards, so reading sent_at
+	// alone would let a delivery to the OLD mailbox through the watermark.
+	// dispatched_at is when it left, and that is what the credit reads.
+	if _, err := pool.Exec(ctx, `UPDATE campaign_contact_progress SET sent_at = NOW() WHERE campaign_id = $1 AND contact_id = $2`,
+		f.campaign, f.contact); err != nil {
+		t.Fatalf("late stamp: %v", err)
+	}
+	if _, err := evidence.CreditCleanDeliveries(ctx, 0, 1000); err != nil {
+		t.Fatalf("credit in-flight: %v", err)
+	}
+	if count() != 0 {
+		t.Fatalf("a send dispatched before the address change was credited to the new address (%d rows)", rows)
+	}
+
+	// Nor may a late event about that step: a hard bounce for the typo lands
+	// after the correction and would otherwise mark the new address invalid
+	// and stop every send to it.
+	step := models.Step(&f.campaign, &seq)
+	if inserted, err := evidence.Record(ctx, f.contact, step, "bounced_recipient", "late-bounce", "550 no such user", time.Now()); err != nil || inserted {
+		t.Fatalf("a bounce for the old address was recorded against the new one (inserted=%v, err=%v)", inserted, err)
+	}
+	if count() != 0 {
+		t.Fatalf("evidence after the late bounce = %d, want 0", rows)
+	}
+
+	// A step dispatched after the correction is about this address, and an
+	// observation that names no step at all is always kept.
+	if _, err := pool.Exec(ctx, `UPDATE campaign_contact_progress SET dispatched_at = NOW(), sent_at = NOW() WHERE campaign_id = $1 AND contact_id = $2`,
+		f.campaign, f.contact); err != nil {
+		t.Fatalf("re-dispatch: %v", err)
+	}
+	if inserted, err := evidence.Record(ctx, f.contact, step, "opened", "fresh", "", time.Now()); err != nil || !inserted {
+		t.Fatalf("an observation about the new address was refused (inserted=%v, err=%v)", inserted, err)
+	}
+	if inserted, err := evidence.Record(ctx, f.contact, models.EvidenceStep{}, "replied", "no-step", "", time.Now()); err != nil || !inserted {
+		t.Fatalf("an observation with no step was refused (inserted=%v, err=%v)", inserted, err)
+	}
+	if count() != 2 {
+		t.Fatalf("evidence after the two allowed observations = %d, want 2", rows)
+	}
 }
 
 func TestLiveContactEmailRefusesCollisionAndGarbage(t *testing.T) {

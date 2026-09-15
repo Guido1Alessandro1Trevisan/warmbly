@@ -659,6 +659,21 @@ type ContactTimelineResult struct {
 	Pagination Pagination `json:"pagination"`
 }
 
+// EvidenceStep names the campaign step a verification observation came from.
+// It is what lets a late bounce or open be refused when the mail it describes
+// left before the contact's address was edited: the observation is about the
+// old mailbox, not the one the contact holds now. A zero value means the
+// observation is not attributable to a step and is always recorded.
+type EvidenceStep struct {
+	CampaignID *uuid.UUID
+	SequenceID *uuid.UUID
+}
+
+// Step builds an EvidenceStep from ids a caller already holds.
+func Step(campaignID, sequenceID *uuid.UUID) EvidenceStep {
+	return EvidenceStep{CampaignID: campaignID, SequenceID: sequenceID}
+}
+
 type UpdateContact struct {
 	FirstName *string `json:"first_name"`
 	LastName  *string `json:"last_name"`

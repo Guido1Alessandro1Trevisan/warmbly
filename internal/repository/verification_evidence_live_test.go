@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/warmbly/warmbly/internal/models"
 	"github.com/warmbly/warmbly/internal/pkg/emailverify"
 )
 
@@ -57,11 +58,11 @@ func TestLiveVerificationEvidenceLedger(t *testing.T) {
 		}
 	}
 
-	inserted, err := repo.Record(ctx, contact, emailverify.EvidenceReplied, "msg-1", "", time.Now())
+	inserted, err := repo.Record(ctx, contact, models.EvidenceStep{}, emailverify.EvidenceReplied, "msg-1", "", time.Now())
 	if err != nil || !inserted {
 		t.Fatalf("record: %v %v", inserted, err)
 	}
-	if dup, _ := repo.Record(ctx, contact, emailverify.EvidenceReplied, "msg-1", "", time.Now()); dup {
+	if dup, _ := repo.Record(ctx, contact, models.EvidenceStep{}, emailverify.EvidenceReplied, "msg-1", "", time.Now()); dup {
 		t.Fatal("same reply recorded twice")
 	}
 	rows, err := repo.ListForContact(ctx, contact)

@@ -1163,7 +1163,7 @@ func (s *service) ProcessIncomingReply(ctx context.Context, emailAccountID uuid.
 			if replyclassify.IsAutomated(replyResult.Class) {
 				kind = "auto_replied"
 			}
-			s.evidence.RecordEvidence(ctx, ctID, kind, msg.ID.String(), "")
+			s.evidence.RecordEvidence(ctx, ctID, models.Step(&cID, &sID), kind, msg.ID.String(), "")
 		}
 		if !replyclassify.IsAutomated(replyResult.Class) {
 			_ = s.campaignProgressRepo.RecordEmailReplied(ctx, cID, ctID, sID)
@@ -1510,7 +1510,7 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 					if emailverify.NamesRecipient(req.Reason) {
 						kind = "bounced_recipient"
 					}
-					s.evidence.RecordEvidence(ctx, *req.ContactID, kind, req.IdempotencyKey, req.Reason)
+					s.evidence.RecordEvidence(ctx, *req.ContactID, models.Step(req.CampaignID, campaignTask.SequenceID), kind, req.IdempotencyKey, req.Reason)
 				}
 			case models.DeliverabilityEventComplaint:
 				_ = s.campaignProgressRepo.RecordEmailComplained(ctx, *req.CampaignID, *req.ContactID, *campaignTask.SequenceID)
@@ -2381,7 +2381,7 @@ func (s *service) listQualityCheck(ctx context.Context, orgID, campaignID uuid.U
 // WireAudience attaches the launch-time list measurement.
 // EvidenceRecorder mirrors emailverify.EvidenceRecorder without importing it.
 type EvidenceRecorder interface {
-	RecordEvidence(ctx context.Context, contactID uuid.UUID, kind, ref, detail string)
+	RecordEvidence(ctx context.Context, contactID uuid.UUID, step models.EvidenceStep, kind, ref, detail string)
 }
 
 // EvidenceAware lets main hand the service the verification evidence ledger.

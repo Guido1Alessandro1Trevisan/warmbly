@@ -2264,6 +2264,13 @@ func (r *contactRepository) Update(ctx context.Context, userID, contactID string
 			if err == pgx.ErrNoRows {
 				return nil, errx.ErrNotFound
 			}
+			// The collision check above is a read, so two edits moving two
+			// contacts onto one address can both pass it and the index
+			// decides. The loser gets the same answer it would have got a
+			// moment earlier rather than a 500.
+			if isUniqueViolation(err) {
+				return nil, errx.ErrContactEmailTaken
+			}
 			db.CaptureError(err, query, args, "queryrow")
 			return nil, errx.InternalError()
 		}

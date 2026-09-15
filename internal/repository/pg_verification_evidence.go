@@ -18,8 +18,11 @@ import (
 // verification verdict and the derived score on the contact row.
 type VerificationEvidenceRepository interface {
 	// Record stores one observation. Idempotent on (contact, kind, ref);
-	// returns whether a new row was written.
-	Record(ctx context.Context, contactID uuid.UUID, kind, ref, detail string, observedAt time.Time) (bool, error)
+	// returns whether a new row was written. step names the campaign step the
+	// observation came from, so an observation about an address the contact no
+	// longer holds can be refused; a zero step means "not attributable to a
+	// step", which is always recorded.
+	Record(ctx context.Context, contactID uuid.UUID, step models.EvidenceStep, kind, ref, detail string, observedAt time.Time) (bool, error)
 	// ListForContact returns the contact's evidence, newest first.
 	ListForContact(ctx context.Context, contactID uuid.UUID) ([]models.ContactVerificationEvidence, error)
 	// Verdict reads the contact's current check verdict for scoring.
@@ -40,16 +43,28 @@ func NewVerificationEvidenceRepository(database *db.DB) VerificationEvidenceRepo
 	return &verificationEvidenceRepository{DB: database}
 }
 
-func (r *verificationEvidenceRepository) Record(ctx context.Context, contactID uuid.UUID, kind, ref, detail string, observedAt time.Time) (bool, error) {
+func (r *verificationEvidenceRepository) Record(ctx context.Context, contactID uuid.UUID, step models.EvidenceStep, kind, ref, detail string, observedAt time.Time) (bool, error) {
 	if observedAt.IsZero() {
 		observedAt = time.Now().UTC()
 	}
+	// A bounce or an open lands long after the mail that produced it, and
+	// editing a contact's address in between does not make the old mailbox's
+	// behaviour evidence about the new one: a delayed hard bounce for a typo
+	// would otherwise mark the corrected address invalid and stop every send
+	// to it. The refusal needs proof, so it only fires when the step is known
+	// AND provably left before the address changed; anything else is recorded.
 	query := `
 		INSERT INTO contact_verification_evidence (contact_id, kind, ref, detail, observed_at)
-		VALUES ($1, $2, $3, $4, $5)
+		SELECT $1, $2, $3, $4, $5
+		FROM contacts c
+		WHERE c.id = $1
+		  AND (c.verification_evidence_reset_at IS NULL OR NOT EXISTS (
+		        SELECT 1 FROM campaign_contact_progress p
+		        WHERE p.campaign_id = $6 AND p.contact_id = $1 AND p.sequence_id = $7
+		          AND COALESCE(p.dispatched_at, p.sent_at) <= c.verification_evidence_reset_at))
 		ON CONFLICT (contact_id, kind, ref) DO NOTHING
 	`
-	params := []any{contactID, kind, ref, detail, observedAt}
+	params := []any{contactID, kind, ref, detail, observedAt, step.CampaignID, step.SequenceID}
 	cmd, err := r.DB.Exec(ctx, query, params...)
 	if err != nil {
 		db.CaptureError(err, query, params, "exec")
@@ -139,6 +154,8 @@ func (r *verificationEvidenceRepository) CreditCleanDeliveries(ctx context.Conte
 	// sent, with no lower bound of its own, so the evidence an address change
 	// deletes would come straight back on the next pass. Steps sent before the
 	// change went to a different mailbox and are not evidence about this one.
+	// dispatched_at, not sent_at: sent_at is stamped when the worker's result
+	// lands, which for a send already on the bus can be after the edit.
 	query := `
 		WITH due AS (
 			SELECT p.contact_id, p.campaign_id, p.sequence_id, p.sent_at
@@ -146,7 +163,7 @@ func (r *verificationEvidenceRepository) CreditCleanDeliveries(ctx context.Conte
 			JOIN contacts c ON c.id = p.contact_id
 			WHERE p.sent_at IS NOT NULL AND p.bounced_at IS NULL
 			  AND p.sent_at < NOW() - make_interval(secs => $1)
-			  AND (c.verification_evidence_reset_at IS NULL OR p.sent_at > c.verification_evidence_reset_at)
+			  AND (c.verification_evidence_reset_at IS NULL OR COALESCE(p.dispatched_at, p.sent_at) > c.verification_evidence_reset_at)
 			  AND NOT EXISTS (
 			    SELECT 1 FROM contact_verification_evidence e
 			    WHERE e.contact_id = p.contact_id AND e.kind = 'delivered'
