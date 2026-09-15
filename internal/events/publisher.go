@@ -38,6 +38,9 @@ type Publisher interface {
 	// PublishMessageSeen relays a read/unread change made in the unibox out to
 	// the mailbox provider.
 	PublishMessageSeen(ctx context.Context, workerID uuid.UUID, action *models.MessageSeenAction) error
+	// PublishMailboxIdentity asks the worker holding a mailbox to read its
+	// sending identity from the provider.
+	PublishMailboxIdentity(ctx context.Context, workerID uuid.UUID, body models.EventWorkerMailboxIdentity) error
 
 	// Worker change notifications
 	PublishAddEmail(ctx context.Context, workerID uuid.UUID, email *models.AddWorkerEmail) error
@@ -324,6 +327,18 @@ func (p *publisher) PublishMessageSeen(ctx context.Context, workerID uuid.UUID, 
 
 	workerTopic := kafka.GetWorkerTopic(workerID.String())
 	return p.publish(workerTopic, action.EmailID.String(), workerEvent)
+}
+
+// PublishMailboxIdentity asks a worker to read a mailbox's sending identity.
+// Keyed by mailbox, like every other per-mailbox event.
+func (p *publisher) PublishMailboxIdentity(ctx context.Context, workerID uuid.UUID, body models.EventWorkerMailboxIdentity) error {
+	workerEvent := models.WorkerEvent{
+		Type: models.WorkerEventTypeMailboxIdentity,
+		Body: body,
+	}
+
+	workerTopic := kafka.GetWorkerTopic(workerID.String())
+	return p.publish(workerTopic, body.EmailID.String(), workerEvent)
 }
 
 // PublishAddEmail publishes an add email event to the worker
