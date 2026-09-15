@@ -487,6 +487,14 @@ func checkGrantedScopes(ctx context.Context, provider models.InboxProvider, want
 
 	var missing []string
 	for _, w := range want {
+		// Microsoft's token response describes the permissions carried by the
+		// Graph access token. OIDC identity scopes and offline_access govern the
+		// accompanying ID/refresh tokens and are not reliably repeated there.
+		// The first-connect path separately requires a real refresh token below.
+		if provider == models.InboxProviderOutlook &&
+			(w == "openid" || w == "email" || w == "profile" || w == "offline_access") {
+			continue
+		}
 		accepted, ok := scopeSatisfiedBy[w]
 		if !ok {
 			accepted = []string{w}
