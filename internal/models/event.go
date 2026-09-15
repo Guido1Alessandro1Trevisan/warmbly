@@ -8,6 +8,10 @@ const (
 	WorkerEventTypeRemoveEmail     WorkerEventType = "REMOVE_EMAIL"
 	WorkerEventTypeEmailValidation WorkerEventType = "EMAIL_VALIDATION"
 	WorkerEventTypeWarmupAction    WorkerEventType = "WARMUP_ACTION"
+	// WorkerEventTypeMailboxIdentity asks the worker holding a mailbox to read
+	// its send-as identities (and one signature) from the provider. The
+	// control plane never calls a customer's provider itself.
+	WorkerEventTypeMailboxIdentity WorkerEventType = "MAILBOX_IDENTITY"
 )
 
 type WorkerEvent struct {
