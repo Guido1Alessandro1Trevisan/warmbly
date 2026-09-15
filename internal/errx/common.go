@@ -189,6 +189,11 @@ var (
 	// Contact
 	ErrContactSerialize = New(BadRequest, "Failed to serialize contact.")
 	ErrContactSize      = New(BadRequest, "Contact size cannot be bigger than 10KB.")
+	// A contact's address is unique within the workspace, so an edit that
+	// collides with another contact is refused rather than merged: merging two
+	// people's campaign progress is not something an edit can undo.
+	ErrContactEmailTaken = NewWithIdentifier(Conflict, "contact_email_taken",
+		"Another contact already uses this email address.")
 
 	// Unibox
 	ErrUniboxLimit = New(BadRequest, fmt.Sprintf("Limit must be between %d and %d.", config.UniboxLimitMin, config.UniboxLimitMax))

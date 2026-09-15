@@ -87,6 +87,12 @@ Every bulk action reads the selection: **Edit**, **Segment**, **Remove from segm
 
 **Select all matching** is in the **From contacts** picker too, on a campaign's Leads tab and a segment page, so a whole search can be added as leads or members in one step.
 
+## Editing one contact
+
+Clicking a row opens the contact's panel. Its **Details** tab edits the fields the contact is made of: name, email address, company, phone, subscription, campaigns, categories and custom fields. Nothing is sent until **Save**, **Discard** puts the panel back to the stored values, and closing it with unsaved edits asks first.
+
+The email address can be changed here, which is the right move when someone's address was mistyped on import or they moved to a new domain. It is stored lowercased, and it has to be free: an address another contact in the workspace already holds is refused, because merging two people's campaign history is not something the edit could undo. A new address also clears the contact's [verification](/guides/deliverability/#address-verification) verdict, since the old one described a different mailbox, and the background check picks the new address up on its next pass. Emails already sent went to the old address and stay in the timeline as they happened.
+
 ## Editing many contacts at once
 
 Tick rows in any contact list, a segment's members or a campaign's leads, and the selection bar's **Edit** opens a bulk panel. It can add or remove campaigns, add or remove categories, force a subscription state, and queue custom-field operations (add, edit, delete, rename) that run on every selected contact, including a **Select all matching** selection that reaches past the loaded pages.

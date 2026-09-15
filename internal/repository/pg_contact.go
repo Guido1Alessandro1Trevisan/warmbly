@@ -2048,11 +2048,15 @@ func (r *contactRepository) Update(ctx context.Context, userID, contactID string
 	// Validate contact existence and fetch current data
 	var c models.Contact
 	var campaignsJSON []byte
+	// The owner is read for the email-uniqueness check: the unique index is
+	// (user_id, lower(email)), which an org-scoped check alone does not cover
+	// for a member who owns contacts in more than one workspace.
+	var ownerID uuid.UUID
 
 	query := `
 		SELECT 
 			c.id, c.first_name, c.last_name, c.email, c.company, c.phone,
-			c.custom_fields, c.subscribed, c.updated_at, c.created_at,
+			c.custom_fields, c.subscribed, c.updated_at, c.created_at, c.user_id,
 			COALESCE(
 				(
 					SELECT json_agg(json_build_object('id', cam.id, 'name', cam.name))
@@ -2078,7 +2082,7 @@ func (r *contactRepository) Update(ctx context.Context, userID, contactID string
 	).Scan(
 		&c.ID, &c.FirstName, &c.LastName, &c.Email,
 		&c.Company, &c.Phone, &c.CustomFields, &c.Subscribed,
-		&c.UpdatedAt, &c.CreatedAt, &campaignsJSON,
+		&c.UpdatedAt, &c.CreatedAt, &ownerID, &campaignsJSON,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, errx.ErrNotFound
@@ -2116,6 +2120,48 @@ func (r *contactRepository) Update(ctx context.Context, userID, contactID string
 	var setClauses []string
 	var args []interface{}
 	argIndex := 1
+
+	// The address is the contact's identity: a changed one is checked for a
+	// collision here rather than left to the unique index, which surfaces as a
+	// 500, and it invalidates every verdict and observation the old mailbox
+	// earned (reset below, with the evidence rows dropped after the update).
+	emailChanged := false
+	if data.Email != nil {
+		next, ok := email.Normalize(*data.Email)
+		if !ok {
+			return nil, errx.ErrEmail
+		}
+		if next != strings.ToLower(c.Email) {
+			var taken bool
+			dupQ := `SELECT EXISTS (
+				SELECT 1 FROM contacts
+				WHERE LOWER(email) = $1 AND id <> $2 AND (organization_id = $3 OR user_id = $4)
+			)`
+			dupP := []any{next, contactID, orgID, ownerID}
+			if err := tx.QueryRow(ctx, dupQ, dupP...).Scan(&taken); err != nil {
+				db.CaptureError(err, dupQ, dupP, "queryrow")
+				return nil, errx.InternalError()
+			}
+			if taken {
+				return nil, errx.ErrContactEmailTaken
+			}
+			emailChanged = true
+			setClauses = append(setClauses, fmt.Sprintf("email = $%d", argIndex))
+			args = append(args, next)
+			argIndex++
+			setClauses = append(setClauses,
+				"verification_status = 'unknown'",
+				"verification_sub_status = ''",
+				"verification_reason = ''",
+				"verification_source = ''",
+				"verification_provider = ''",
+				"is_catch_all = false",
+				"verification_checked_at = NULL",
+				"verification_confidence = 0",
+				"verification_evidence_at = NULL",
+			)
+		}
+	}
 
 	// Update fields if provided
 	if data.FirstName != nil {
@@ -2192,6 +2238,16 @@ func (r *contactRepository) Update(ctx context.Context, userID, contactID string
 		}
 	} else {
 		updatedContact = c // No fields updated, use existing contact
+	}
+
+	// The evidence ledger is a record of what a mailbox did, so it follows the
+	// address rather than the row. Leaving it would let the scorer hand the new
+	// address a verdict earned by the old one.
+	if emailChanged {
+		if _, err := tx.Exec(ctx, `DELETE FROM contact_verification_evidence WHERE contact_id = $1`, contactID); err != nil {
+			db.CaptureError(err, "", nil, "verification evidence wipe")
+			return nil, errx.InternalError()
+		}
 	}
 
 	// Campaigns are organization assets: scoping membership by the caller made a

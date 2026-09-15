@@ -6966,7 +6966,7 @@
         ],
         "operationId": "contacts_update",
         "summary": "Update a contact",
-        "description": "Partially updates a single contact; only the fields present change. Category lists can be set wholesale or adjusted with diff-style add/remove. Scope `WRITE_CONTACTS`.",
+        "description": "Partially updates a single contact; only the fields present change. Category lists can be set wholesale or adjusted with diff-style add/remove. `email` replaces the contact's address and resets its verification verdict. Scope `WRITE_CONTACTS`.",
         "security": [
           {
             "bearerAuth": []
@@ -7039,6 +7039,16 @@
           },
           "404": {
             "description": "Contact not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another contact already uses the supplied email address (code contact_email_taken).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23920,6 +23930,11 @@
           },
           "last_name": {
             "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "New email address. Stored lowercased and stripped of any display name. Unique within the workspace: an address another contact holds returns 409 contact_email_taken. Changing it resets the contact's verification verdict to unknown."
           },
           "company": {
             "type": "string"

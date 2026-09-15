@@ -660,8 +660,12 @@ type ContactTimelineResult struct {
 }
 
 type UpdateContact struct {
-	FirstName        *string            `json:"first_name"`
-	LastName         *string            `json:"last_name"`
+	FirstName *string `json:"first_name"`
+	LastName  *string `json:"last_name"`
+	// Email replaces the contact's address. It is the contact's identity, so
+	// changing it drops the verification verdict and the delivery evidence
+	// that belonged to the old mailbox.
+	Email            *string            `json:"email"`
 	Company          *string            `json:"company"`
 	Phone            *string            `json:"phone"`
 	CustomFields     *map[string]string `json:"custom_fields"`
