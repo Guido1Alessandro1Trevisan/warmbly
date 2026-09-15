@@ -163,9 +163,26 @@ func TestLiveContactEmailChangeSurvivesTheDeliveryCreditJob(t *testing.T) {
 		}
 	})
 
-	// The old address earns its delivery.
-	if _, err := evidence.CreditCleanDeliveries(ctx, time.Hour, 1000); err != nil {
-		t.Fatalf("credit: %v", err)
+	// The old address earns its delivery. The credit job works a global
+	// backlog under one limit, so on a shared database this contact can sit
+	// behind other people's steps; drain until it comes back.
+	credited := false
+	for pass := 0; pass < 20 && !credited; pass++ {
+		ids, err := evidence.CreditCleanDeliveries(ctx, time.Hour, 500)
+		if err != nil {
+			t.Fatalf("credit: %v", err)
+		}
+		if len(ids) == 0 {
+			break
+		}
+		for _, id := range ids {
+			if id == f.contact {
+				credited = true
+			}
+		}
+	}
+	if !credited {
+		t.Fatal("the delivery to the old address was never credited, so the test proves nothing")
 	}
 	var rows int
 	count := func() int {

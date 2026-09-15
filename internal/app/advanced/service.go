@@ -1510,7 +1510,10 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 					if emailverify.NamesRecipient(req.Reason) {
 						kind = "bounced_recipient"
 					}
-					s.evidence.RecordEvidence(ctx, *req.ContactID, models.Step(req.CampaignID, campaignTask.SequenceID), kind, req.IdempotencyKey, req.Reason)
+					// Both halves of the step come from the resolved task, so the
+					// pair names one real row rather than a request-supplied
+					// campaign paired with a resolved sequence.
+					s.evidence.RecordEvidence(ctx, *req.ContactID, models.Step(campaignTask.CampaignID, campaignTask.SequenceID), kind, req.IdempotencyKey, req.Reason)
 				}
 			case models.DeliverabilityEventComplaint:
 				_ = s.campaignProgressRepo.RecordEmailComplained(ctx, *req.CampaignID, *req.ContactID, *campaignTask.SequenceID)
