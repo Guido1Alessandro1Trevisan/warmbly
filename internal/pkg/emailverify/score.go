@@ -264,6 +264,19 @@ func clamp(n int) int {
 	return n
 }
 
+// BlamesSender reports whether a bounce or rejection text names OUR side as
+// the problem: the connecting IP, the envelope sender, a tenant or policy
+// block, a reputation listing or a rate limit. Such a rejection says nothing
+// about the recipient, so it must never suppress the address; it is a
+// mailbox-level fault that stops the whole run instead.
+func BlamesSender(text string) bool {
+	lower := strings.ToLower(text)
+	if containsAny(lower, recipientMarkers) {
+		return false
+	}
+	return containsAny(lower, probeMarkers)
+}
+
 // NamesRecipient reports whether a bounce or rejection text says the
 // RECIPIENT does not exist, as opposed to a full mailbox, a policy block, a
 // reputation rejection or a greeting the server disliked. Only the former is

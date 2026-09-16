@@ -17,6 +17,9 @@ import (
 //
 // Runs on the worker because the full DSN body is in hand here (the consumer has
 // no S3 access). It only PARSES — resolution and suppression stay control-plane.
+// Microsoft Graph returns no delivery-status part, only the rendered Exchange
+// notice; the dsn package reads that form too, so Outlook mailboxes get the
+// same tracking.
 // Best-effort and permanent-only: a message that doesn't parse to a permanent
 // failure with a resolvable original id is silently ignored, so a transient
 // (4.x.x) bounce never suppresses a valid recipient.
@@ -41,12 +44,21 @@ func (w *WMail) maybeEmitBounce(msg *models.EmailMessageData) {
 		return // nothing to resolve the campaign send against
 	}
 
+	// The remote server's reply is the reason worth keeping: it tells the
+	// control plane whether the recipient was rejected (evidence against the
+	// address) or the sender was (a policy block that must not suppress
+	// anyone). The subject is only a fallback for reports without one.
+	reason := report.Diagnostic
+	if reason == "" {
+		reason = msg.Subject
+	}
+
 	_ = w.onEvent(models.JobEventTypeInboundBounce, &models.JobEventInboundBounce{
 		UserID:            w.UserID,
 		EmailID:           w.ID,
 		OriginalMessageID: strings.Trim(originalID, "<>"),
 		FailedRecipient:   report.FailedRecipient,
-		Reason:            msg.Subject,
+		Reason:            reason,
 	})
 }
 

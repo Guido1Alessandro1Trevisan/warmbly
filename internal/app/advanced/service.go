@@ -1341,7 +1341,12 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 		return toErrx(err)
 	}
 
-	shouldSuppress := (eventType == models.DeliverabilityEventBounce && settings.BouncePipeline.AutoSuppressOnBounce) ||
+	// A bounce that blames the sender (IP or tenant block, reputation, rate
+	// limit) is not evidence against the recipient: the address is fine, our
+	// mailbox is not. It still counts as a bounce for progress and the
+	// breaker, but suppressing the contact would lose a valid lead for good.
+	senderFault := eventType == models.DeliverabilityEventBounce && emailverify.BlamesSender(req.Reason)
+	shouldSuppress := (eventType == models.DeliverabilityEventBounce && settings.BouncePipeline.AutoSuppressOnBounce && !senderFault) ||
 		(eventType == models.DeliverabilityEventComplaint && settings.BouncePipeline.AutoSuppressOnComplaint) ||
 		(eventType == models.DeliverabilityEventUnsubscribe && settings.BouncePipeline.AutoSuppressOnUnsubscribe)
 
@@ -1452,6 +1457,11 @@ func (s *service) IngestDeliverabilityEvent(ctx context.Context, organizationID 
 const (
 	campaignBreakerWindow    = 7 * 24 * time.Hour
 	campaignBreakerMinSample = 50
+	// campaignBreakerAllBouncedMinSample is the smaller sample that pauses a
+	// campaign when EVERY send in the window bounced: that is a blocked
+	// mailbox or tenant, not recipient noise, and it shows on the first
+	// handful of sends.
+	campaignBreakerAllBouncedMinSample = 3
 	// Early-warning band: emit a warning webhook at half the pause threshold.
 	campaignBreakerWarnRatio = 0.5
 )
@@ -1471,10 +1481,29 @@ func (s *service) evaluateCampaignBreaker(ctx context.Context, orgID, campaignID
 	}
 
 	sent, bounced, complained := 0, 0, 0
-	if rolling, err := s.campaignProgressRepo.GetCampaignRollingRates(ctx, campaignID, time.Now().Add(-campaignBreakerWindow)); err == nil && rolling != nil && rolling.Sent >= campaignBreakerMinSample {
+	rolling, err := s.campaignProgressRepo.GetCampaignRollingRates(ctx, campaignID, time.Now().Add(-campaignBreakerWindow))
+	if err == nil && rolling != nil && rolling.Sent >= campaignBreakerMinSample {
 		sent, bounced, complained = rolling.Sent, rolling.Bounced, rolling.Complained
 	} else if progress, pErr := s.campaignProgressRepo.GetCampaignProgress(ctx, campaignID); pErr == nil && progress != nil {
 		sent, bounced, complained = progress.EmailsSent, progress.EmailsBounced, progress.EmailsComplained
+	}
+
+	// Every recent send bounced: the mailbox or tenant is blocked, so waiting
+	// for a statistically sound sample would only burn more sends and
+	// reputation. Pause now; the operator restarts once the block is lifted.
+	if bounceThresh > 0 && err == nil && rolling != nil &&
+		rolling.Sent >= campaignBreakerAllBouncedMinSample && rolling.Bounced >= rolling.Sent {
+		if uErr := s.campaignRepo.UpdateStatus(ctx, campaignID, "paused"); uErr == nil {
+			s.emit(ctx, orgID, models.WebhookEventCampaignPaused, map[string]any{
+				"campaign_id":    campaignID.String(),
+				"reason":         "deliverability_auto_pause",
+				"bounce_rate":    100.0,
+				"complaint_rate": float64(rolling.Complained) / float64(rolling.Sent) * 100,
+				"sample_size":    rolling.Sent,
+				"breached":       "all_bounced",
+			})
+		}
+		return
 	}
 
 	// Not enough delivered volume yet to judge — never pause on a tiny sample.

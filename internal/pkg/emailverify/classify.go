@@ -89,6 +89,8 @@ var probeMarkers = []string{
 	"try again",
 	"temporarily",
 	"service unavailable",
+	"traffic not accepted",
+	"not accepted from this ip",
 	"connection refused",
 	"policy reasons",
 	"local policy",
